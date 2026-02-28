@@ -107,10 +107,14 @@ module Turnstile
       )
     end
 
-    # The main before_action: load resources, then authorize.
+    # The main before_action: load resources, then authorize,
+    # then wrap loaded records in Presented decorators for
+    # read actions so that view templates receive guarded
+    # attribute access automatically.
     def turnstile_load_and_authorize
       turnstile_load_resource
       turnstile_authorize_resource
+      turnstile_present_resource
     end
 
     def turnstile_load_resource
@@ -191,8 +195,56 @@ module Turnstile
       )
     end
 
+    # Wrap loaded resources in Presented/PresentedCollection
+    # for read actions. Write actions (create, update,
+    # destroy) need the raw record for mutation, so
+    # presentation is skipped.
+    def turnstile_present_resource
+      return if self.class.turnstile_skip_present_actions
+        .include?(action_name.to_sym)
+      return if turnstile_write_action?
+
+      record = turnstile_loaded_record
+      return unless record
+
+      if record.respond_to?(:each)
+        presented = PresentedCollection.new(
+          record, turnstile_user
+        )
+        ivar = :"@#{turnstile_plural_name}"
+      else
+        presented = Presented.new(record, turnstile_user)
+        ivar = :"@#{turnstile_singular_name}"
+      end
+
+      instance_variable_set(ivar, presented)
+    end
+
     def turnstile_authorization_performed?
       !!@turnstile_authorization_performed
+    end
+
+    # Actions that mutate records; presentation is skipped.
+    WRITE_ACTIONS = %i[create destroy update].freeze
+
+    def turnstile_write_action?
+      WRITE_ACTIONS.include?(action_name.to_sym)
+    end
+
+    def turnstile_singular_name
+      klass = self.class.turnstile_config.resource_class ||
+        infer_resource_class
+      return nil unless klass
+
+      klass.model_name.singular
+    end
+
+    def turnstile_plural_name
+      klass = self.class.turnstile_config.resource_class ||
+        infer_resource_class
+      return nil unless klass
+
+      klass.model_name.plural
     end
 
     # Class methods for the controller.
@@ -209,6 +261,24 @@ module Turnstile
         @turnstile_skip_auth_actions ||= if superclass
             .respond_to?(:turnstile_skip_auth_actions)
           superclass.turnstile_skip_auth_actions.dup
+        else
+          Set.new
+        end
+      end
+
+      # Declare actions that should skip auto-presentation
+      # (i.e. resources stay as raw AR records).
+      def skip_presentation(*actions)
+        actions.each do |a|
+          turnstile_skip_present_actions << a.to_sym
+        end
+      end
+
+      # Set of actions that skip presentation.
+      def turnstile_skip_present_actions
+        @turnstile_skip_present_actions ||= if superclass
+            .respond_to?(:turnstile_skip_present_actions)
+          superclass.turnstile_skip_present_actions.dup
         else
           Set.new
         end
