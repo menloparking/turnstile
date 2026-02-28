@@ -6,6 +6,7 @@ module Turnstile
     attr_accessor request_policy: Class?
     attr_accessor request_policy_status: Integer?
     attr_accessor request_policy_body: (String | ^(Authorization::Result) -> String)?
+    attr_accessor presented_mode: Symbol
 
     def initialize: -> void
   end

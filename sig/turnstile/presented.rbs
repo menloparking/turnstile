@@ -1,0 +1,47 @@
+module Turnstile
+  class Presented
+    PASSTHROUGH_METHODS: Array[Symbol]
+
+    attr_reader __record__: untyped
+    attr_reader __view_policy__: Authorization::ViewPolicy?
+    attr_reader __user__: untyped
+
+    def initialize: (
+      untyped record,
+      untyped user,
+      ?view_policy: Authorization::ViewPolicy?
+    ) -> void
+
+    def unwrap: -> untyped
+    def ==: (untyped other) -> bool
+    def eql?: (untyped other) -> bool
+    def hash: -> Integer
+    def to_model: -> self
+    def to_param: -> String?
+    def to_key: -> Array[untyped]?
+    def to_partial_path: -> String
+    def model_name: -> ActiveModel::Name
+    def persisted?: -> bool
+    def new_record?: -> bool
+    def destroyed?: -> bool
+    def errors: -> untyped
+    def valid?: (*untyped) -> bool
+    def invalid?: (*untyped) -> bool
+    def id: -> untyped
+    def is_a?: (Module klass) -> bool
+    def kind_of?: (Module klass) -> bool
+    def instance_of?: (Module klass) -> bool
+    def class: -> Class
+    def respond_to?: (Symbol | String, ?bool) -> bool
+    def inspect: -> String
+
+    private
+
+    def resolve_view_policy: -> Authorization::ViewPolicy?
+    def method_missing: (Symbol, *untyped) ?{ (*untyped) -> untyped } -> untyped
+    def respond_to_missing?: (Symbol | String, ?bool) -> bool
+    def guarded_attribute?: (Symbol | String) -> bool
+    def guard_attribute: (Symbol | String) -> void
+    def maybe_present_association: (Symbol | String, untyped) -> untyped
+  end
+end

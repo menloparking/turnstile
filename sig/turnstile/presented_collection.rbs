@@ -1,0 +1,22 @@
+module Turnstile
+  class PresentedCollection
+    include Enumerable[Presented]
+
+    attr_reader __relation__: untyped
+    attr_reader __user__: untyped
+
+    def initialize: (untyped relation, untyped user) -> void
+
+    def each: { (Presented) -> void } -> void
+            | -> Enumerator[Presented, void]
+
+    def count: (*untyped) -> Integer
+    def empty?: -> bool
+    def length: -> Integer
+    def size: -> Integer
+    def klass: -> Class?
+    def model_name: -> ActiveModel::Name?
+    def inspect: -> String
+    def unwrap: -> untyped
+  end
+end

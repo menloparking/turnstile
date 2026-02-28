@@ -39,4 +39,20 @@ module Turnstile
 
     def initialize: (Class, untyped) -> void
   end
+
+  class AttributeDeniedError < Error
+    attr_reader attribute: Symbol
+    attr_reader record: untyped
+    attr_reader reason: String?
+
+    def initialize: (
+      attribute: Symbol,
+      record: untyped,
+      ?reason: String?
+    ) -> void
+
+    private
+
+    def default_message: -> String
+  end
 end
