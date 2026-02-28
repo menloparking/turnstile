@@ -1,0 +1,9 @@
+module Turnstile
+  VERSION: String
+
+  def self.configuration: -> Configuration
+  def self.configure: { (Configuration) -> void } -> void
+  def self.logger: -> Logger
+  def self.logger=: (Logger) -> Logger
+  def self.reset_configuration!: -> Configuration
+end

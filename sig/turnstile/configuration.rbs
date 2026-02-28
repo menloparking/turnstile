@@ -1,0 +1,12 @@
+module Turnstile
+  class Configuration
+    attr_accessor logger: Logger
+    attr_accessor current_user_method: Symbol
+    attr_accessor policy_namespace: String?
+    attr_accessor request_policy: Class?
+    attr_accessor request_policy_status: Integer?
+    attr_accessor request_policy_body: (String | ^(Authorization::Result) -> String)?
+
+    def initialize: -> void
+  end
+end

@@ -1,0 +1,37 @@
+module Turnstile
+  module RequestPolicy
+    class Base
+      attr_reader request: untyped
+
+      def initialize: (untyped request) -> void
+      def call: -> Authorization::Result
+
+      private
+
+      def allow: -> Authorization::Result
+      def deny: (?reason: String?) -> Authorization::Result
+    end
+
+    class PermitAll < Base
+      def call: -> Authorization::Result
+    end
+
+    class Middleware
+      DEFAULT_BODY: String
+      DEFAULT_STATUS: Integer
+      DEFAULT_CONTENT_TYPE: String
+
+      def initialize: (untyped app) -> void
+      def call: (Hash[String, untyped] env) ->
+        [Integer, Hash[String, String], Array[String]]
+
+      private
+
+      def deny_response: (Authorization::Result result) ->
+        [Integer, Hash[String, String], Array[String]]
+      def log_allowed: (untyped request) -> void
+      def log_denied: (untyped request,
+        Authorization::Result result) -> void
+    end
+  end
+end

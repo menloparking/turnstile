@@ -1,0 +1,45 @@
+module Turnstile
+  module Loading
+    class Config
+      attr_accessor resource_class: Class?
+      attr_accessor id_param: Symbol?
+      attr_reader action_modes: Hash[Symbol, Symbol]
+      attr_reader custom_loaders: Hash[Symbol, Proc]
+
+      def initialize: -> void
+      def dup: -> Config
+    end
+
+    module Dsl
+      module ClassMethods
+        def turnstile_config: -> Config
+        def resource_class: (Class) -> void
+        def resource_id_param: (Symbol | String) -> void
+        def load_singular: (*Symbol) -> void
+        def load_plural: (*Symbol) -> void
+        def skip_loading: (*Symbol) -> void
+        def load_resource: (Symbol) { (untyped) -> untyped } -> void
+      end
+    end
+
+    class Loader
+      PLURAL_ACTIONS: Array[Symbol]
+      SINGULAR_ACTIONS: Array[Symbol]
+      SKIP_ACTIONS: Array[Symbol]
+
+      attr_reader controller_class: Class
+      attr_reader action_name: Symbol
+      attr_reader params: untyped
+      attr_reader current_user: untyped
+
+      def initialize: (
+        controller_class: Class,
+        action_name: Symbol | String,
+        params: untyped,
+        current_user: untyped
+      ) -> void
+
+      def load: -> Hash[Symbol, untyped]
+    end
+  end
+end

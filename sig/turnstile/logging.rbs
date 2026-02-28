@@ -1,0 +1,10 @@
+module Turnstile
+  module Logging
+    class NullLogger < ::Logger
+      def initialize: -> void
+      def add: (*untyped, **untyped) ?{ -> untyped } -> nil
+    end
+
+    def self.default_logger: -> Logger
+  end
+end

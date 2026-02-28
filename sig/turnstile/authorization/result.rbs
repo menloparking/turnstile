@@ -1,0 +1,21 @@
+module Turnstile
+  module Authorization
+    class Result
+      attr_reader allowed: bool
+      attr_reader reason: String?
+      attr_reader permission: Symbol
+
+      def initialize: (
+        boolish,
+        permission: Symbol,
+        ?reason: String?
+      ) -> void
+
+      def allowed?: -> bool
+      def denied?: -> bool
+      def !: -> bool
+      def to_s: -> String
+      def inspect: -> String
+    end
+  end
+end

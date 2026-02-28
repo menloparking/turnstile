@@ -1,0 +1,25 @@
+module Turnstile
+  module Controller
+    def authorize: (
+      untyped record,
+      ?Symbol? permission,
+      **untyped opts
+    ) -> Result
+
+    def authorize_without_context: (
+      untyped record,
+      ?Symbol? permission,
+      **untyped opts
+    ) -> Result
+
+    def view_policy: (untyped record) -> Authorization::ViewPolicy?
+    def policy: (untyped record) -> Authorization::Policy
+    def policy_scope: (untyped scope) -> untyped
+    def skip_authorization: -> void
+
+    module ClassMethods
+      def skip_authorization: (*Symbol) -> void
+      def turnstile_skip_auth_actions: -> Set[Symbol]
+    end
+  end
+end

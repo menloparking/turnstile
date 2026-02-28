@@ -1,0 +1,21 @@
+module Turnstile
+  module Authorization
+    class PermissionInfo
+      attr_reader name: Symbol
+      attr_reader description: String?
+      attr_reader contextual: bool
+      attr_reader parameters: Array[Symbol]
+
+      def initialize: (
+        Symbol | String,
+        ?description: String?,
+        ?contextual: bool,
+        ?parameters: Array[Symbol]
+      ) -> void
+
+      def contextual?: -> bool
+      def to_s: -> String
+      def inspect: -> String
+    end
+  end
+end

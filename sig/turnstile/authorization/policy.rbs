@@ -1,0 +1,117 @@
+module Turnstile
+  module Authorization
+    module Reflection
+      module ClassMethods
+        def permission: (
+          Symbol,
+          ?description: String?,
+          ?contextual: bool,
+          ?parameters: Array[Symbol]
+        ) -> void
+
+        def permissions: -> Hash[Symbol, PermissionInfo]
+        def permission_names: -> Array[Symbol]
+        def contextual_permissions: -> Hash[Symbol, PermissionInfo]
+        def context_free_permissions: -> Hash[Symbol, PermissionInfo]
+      end
+    end
+
+    class Policy
+      include Reflection
+
+      attr_reader user: untyped
+      attr_reader record: untyped
+
+      def initialize: (untyped user, untyped record) -> void
+
+      class Scope
+        attr_reader user: untyped
+        attr_reader scope: untyped
+
+        def initialize: (untyped user, untyped scope) -> void
+        def resolve: -> untyped
+      end
+
+      private
+
+      def allow: (Symbol) -> Result
+      def deny: (Symbol, ?reason: String?) -> Result
+      def log: (String, ?level: Symbol) -> void
+    end
+
+    class PermitAll < Policy
+      def create?: -> Result
+      def destroy?: -> Result
+      def index?: -> Result
+      def show?: -> Result
+      def update?: -> Result
+
+      class Scope < Policy::Scope
+        def resolve: -> untyped
+      end
+    end
+
+    class RequestContext
+      attr_reader request: untyped
+      attr_reader params: untyped
+      attr_reader action_name: Symbol
+      attr_reader controller_name: String?
+
+      def initialize: (
+        request: untyped,
+        params: untyped,
+        action_name: Symbol | String,
+        ?controller_name: String?
+      ) -> void
+
+      def ip: -> String?
+      def method: -> String?
+      def content_type: -> String?
+      def headers: -> untyped
+      def xhr?: -> bool
+    end
+
+    class ContextPolicy < Policy
+      attr_reader context: RequestContext
+
+      def initialize: (
+        untyped user,
+        untyped record,
+        RequestContext context
+      ) -> void
+
+      def self.general_policy: (?Class?) -> Class?
+      def self.permissions: -> Hash[Symbol, PermissionInfo]
+
+      class Scope < Policy::Scope
+        attr_reader context: RequestContext
+
+        def initialize: (
+          untyped user,
+          untyped scope,
+          RequestContext context
+        ) -> void
+      end
+    end
+
+    class ViewPolicy < Policy
+      def visibility: (*Symbol) -> Hash[Symbol, bool]
+    end
+
+    module Resolver
+      SUFFIXES: Hash[Symbol, String]
+
+      def self.resolve: (
+        untyped record,
+        ?type: Symbol
+      ) -> Class?
+
+      def self.resolve!: (
+        untyped record,
+        ?type: Symbol
+      ) -> Class
+
+      def self.model_name_for: (untyped record) -> String?
+    end
+  end
+end

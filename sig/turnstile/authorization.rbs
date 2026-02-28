@@ -1,0 +1,28 @@
+module Turnstile
+  module Authorization
+    def self.authorize: (
+      untyped user,
+      untyped record,
+      Symbol permission,
+      ?bang: bool
+    ) -> Result
+
+    def self.authorize_in_context: (
+      untyped user,
+      untyped record,
+      Symbol permission,
+      RequestContext context,
+      ?bang: bool
+    ) -> Result
+
+    def self.authorize_view: (
+      untyped user,
+      untyped record,
+      Symbol permission,
+      ?bang: bool
+    ) -> Result?
+
+    def self.policy_for: (untyped user, untyped record) -> Policy
+    def self.policy_scope: (untyped user, untyped scope) -> untyped
+  end
+end

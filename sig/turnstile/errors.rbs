@@ -1,0 +1,42 @@
+module Turnstile
+  class Error < StandardError
+  end
+
+  class NotAuthorizedError < Error
+    attr_reader user: untyped
+    attr_reader record: untyped
+    attr_reader permission: Symbol?
+    attr_reader policy: Class?
+    attr_reader reason: String?
+
+    def initialize: (
+      ?String?,
+      ?user: untyped,
+      ?record: untyped,
+      ?permission: Symbol?,
+      ?policy: Class?,
+      ?reason: String?
+    ) -> void
+
+    private
+
+    def default_message: -> String
+  end
+
+  class PolicyNotFoundError < Error
+    attr_reader record: untyped
+
+    def initialize: (untyped) -> void
+  end
+
+  class AuthorizationNotPerformedError < Error
+    def initialize: -> void
+  end
+
+  class ResourceNotFoundError < Error
+    attr_reader resource_class: Class
+    attr_reader resource_id: untyped
+
+    def initialize: (Class, untyped) -> void
+  end
+end
