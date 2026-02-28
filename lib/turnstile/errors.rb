@@ -67,6 +67,36 @@ module Turnstile
     end
   end
 
+  # Raised when a presented record's attribute is accessed
+  # but the view policy denies visibility. Only raised in
+  # strict mode (the default).
+  class AttributeDeniedError < Error
+    # @return [Symbol] the attribute that was denied
+    attr_reader :attribute
+
+    # @return [Object] the record whose attribute was guarded
+    attr_reader :record
+
+    # @return [String, nil] reason from the view policy
+    attr_reader :reason
+
+    def initialize(attribute:, record:, reason: nil)
+      @attribute = attribute
+      @record = record
+      @reason = reason
+      super(default_message)
+    end
+
+    private
+
+    def default_message
+      msg = "attribute #{attribute} on #{record.class}"
+      msg << " is not visible"
+      msg << " (#{reason})" if reason
+      msg
+    end
+  end
+
   # Raised when resource loading fails.
   class ResourceNotFoundError < Error
     # @return [Class] the model class that was queried

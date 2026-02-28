@@ -7,6 +7,8 @@ require_relative "turnstile/errors"
 require_relative "turnstile/authorization"
 require_relative "turnstile/request_policy"
 require_relative "turnstile/loading"
+require_relative "turnstile/presented"
+require_relative "turnstile/presented_collection"
 require_relative "turnstile/controller"
 require_relative "turnstile/railtie" if defined?(Rails::Railtie)
 

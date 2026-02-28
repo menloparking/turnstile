@@ -34,10 +34,17 @@ module Turnstile
     #   "Forbidden" in the middleware if nil.
     attr_accessor :request_policy_body
 
+    # @return [Symbol] :strict or :lenient. In strict mode,
+    #   accessing a denied attribute on a Presented record
+    #   raises AttributeDeniedError. In lenient mode it
+    #   returns nil. Defaults to :strict (DenyAll).
+    attr_accessor :presented_mode
+
     def initialize
       @current_user_method = :current_user
       @logger = Logging.default_logger
       @policy_namespace = nil
+      @presented_mode = :strict
       @request_policy = nil
       @request_policy_body = nil
       @request_policy_status = nil
