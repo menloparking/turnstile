@@ -49,8 +49,8 @@ the HTTP request.
 | `Turnstile::Authorization::Policy` | Denies all; five standard CRUD perms  |
 | `Turnstile::Authorization::PermitAll` | Permits everything                 |
 
-Subclasses override `show?`, `update?`, etc., returning `allow(:perm)` or
-`deny(:perm, reason: "...")`. Unimplemented registered permissions are caught by
+Subclasses override `show?`, `update?`, etc., returning `allow` or
+`deny(reason: "...")`. Unimplemented registered permissions are caught by
 `method_missing` and denied — the DenyAll backbone.
 
 The inner class `Scope` receives `(user, scope)` and resolves the authorized subset of a
@@ -70,7 +70,7 @@ class ArticleContextPolicy < Turnstile::Authorization::ContextPolicy
     return base if base.denied?
 
     forbidden = changed_attrs & %i[published author_id]
-    forbidden.any? && !user.admin? ? deny(:update) : allow(:update)
+    forbidden.any? && !user.admin? ? deny : allow
   end
 end
 ```
@@ -91,11 +91,11 @@ whether a column attribute may be read.
 ```ruby
 class ArticlePolicy < Turnstile::Authorization::Policy
   def title_allowed?
-    allow(:title)
+    allow
   end
 
   def body_allowed?
-    user&.admin? ? allow(:body) : deny(:body, reason: "restricted")
+    user&.admin? ? allow : deny(reason: "restricted")
   end
 end
 ```

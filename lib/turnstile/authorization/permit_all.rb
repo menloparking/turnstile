@@ -9,20 +9,20 @@ module Turnstile
     #   class PublicPagePolicy < Turnstile::Authorization::PermitAll
     #     # everything allowed by default; lock down destroy:
     #     def destroy?
-    #       deny(:destroy, reason: "pages are immutable")
+    #       deny(reason: "pages are immutable")
     #     end
     #   end
     #
     class PermitAll < Policy
-      def create? = allow(:create)
+      def create? = allow
 
-      def destroy? = allow(:destroy)
+      def destroy? = allow
 
-      def index? = allow(:index)
+      def index? = allow
 
-      def show? = allow(:show)
+      def show? = allow
 
-      def update? = allow(:update)
+      def update? = allow
 
       # Scope that returns everything.
       class Scope < Policy::Scope

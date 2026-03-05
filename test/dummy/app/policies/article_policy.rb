@@ -4,50 +4,51 @@ class ArticlePolicy < Turnstile::Authorization::Policy
   permission :archive, description: "archive an article"
   permission :publish, description: "publish an article"
 
-  def index? = allow(:index)
+  def index? = allow
 
-  def search? = allow(:search)
+  def search? = allow
 
-  def show? = allow(:show)
+  def show? = allow
 
   def create?
     if user&.admin? || user&.editor?
-      allow(:create)
+      allow
     else
-      deny(:create, reason: "only admins and editors may create")
+      deny(reason: "only admins and editors may create")
     end
   end
 
   def update?
     if user&.admin?
-      allow(:update)
+      allow
     elsif user&.editor? &&
         record.respond_to?(:author_id) &&
         record.author_id == user.id
-      allow(:update)
+      allow
     else
-      deny(:update, reason: "you do not own this article")
+      deny(reason: "you do not own this article")
     end
   end
 
   def destroy?
     if user&.admin?
-      allow(:destroy)
+      allow
     else
-      deny(:destroy,
-        reason: "only admins may destroy articles")
+      deny(
+        reason: "only admins may destroy articles"
+      )
     end
   end
 
   def publish?
     if user&.admin? || user&.editor?
-      allow(:publish)
+      allow
     else
-      deny(:publish, reason: "insufficient role")
+      deny(reason: "insufficient role")
     end
   end
 
-  def archive? = deny(:archive, reason: "archiving disabled")
+  def archive? = deny(reason: "archiving disabled")
 
   class Scope < Turnstile::Authorization::Policy::Scope
     def resolve

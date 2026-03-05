@@ -68,78 +68,83 @@ class ArticlePolicy < Turnstile::Authorization::Policy
   permission :archive,
     description: "archive an article"
 
-  def index? = allow(:index)
+  def index? = allow
 
-  def show? = allow(:show)
+  def show? = allow
 
   def create?
     if user&.admin? || user&.editor?
-      allow(:create)
+      allow
     else
-      deny(:create,
-        reason: "only admins and editors may create")
+      deny(
+        reason: "only admins and editors may create"
+      )
     end
   end
 
   def update?
     if user&.admin?
-      allow(:update)
+      allow
     elsif user&.editor? && record.respond_to?(:author_id) &&
         record.author_id == user.id
-      allow(:update)
+      allow
     else
-      deny(:update,
-        reason: "you do not own this article")
+      deny(
+        reason: "you do not own this article"
+      )
     end
   end
 
   def destroy?
     if user&.admin?
-      allow(:destroy)
+      allow
     else
-      deny(:destroy,
-        reason: "only admins may destroy articles")
+      deny(
+        reason: "only admins may destroy articles"
+      )
     end
   end
 
   def publish?
     if user&.admin? || user&.editor?
-      allow(:publish)
+      allow
     else
-      deny(:publish, reason: "insufficient role")
+      deny(reason: "insufficient role")
     end
   end
 
-  def archive? = deny(:archive, reason: "archiving disabled")
+  def archive? = deny(reason: "archiving disabled")
 
   # Attribute visibility via _allowed? convention.
   # DenyAll: attributes without an _allowed? method are
   # hidden by default in Presented.
 
-  def title_allowed? = allow(:title_allowed)
+  def title_allowed? = allow
 
-  def published_allowed? = allow(:published_allowed)
+  def published_allowed? = allow
 
-  def created_at_allowed? = allow(:created_at_allowed)
+  def created_at_allowed? = allow
 
-  def updated_at_allowed? = allow(:updated_at_allowed)
+  def updated_at_allowed? = allow
 
   def body_allowed?
     if record.respond_to?(:published?) && record.published? ||
         user&.admin?
-      allow(:body_allowed)
+      allow
     else
-      deny(:body_allowed,
-        reason: "article not yet published")
+      deny(
+        reason: "article not yet published"
+      )
     end
   end
 
   def author_id_allowed?
     if user&.admin? || user&.editor?
-      allow(:author_id_allowed)
+      allow
     else
-      deny(:author_id_allowed,
-        reason: "restricted to staff")
+      deny(
+        reason: "restricted to staff"
+      )
     end
   end
 
@@ -178,10 +183,11 @@ class ArticleContextPolicy <
     forbidden = changed & %i[published author_id]
 
     if forbidden.any? && !user&.admin?
-      deny(:update,
-        reason: "cannot modify #{forbidden.join(", ")}")
+      deny(
+        reason: "cannot modify #{forbidden.join(", ")}"
+      )
     else
-      allow(:update)
+      allow
     end
   end
 end

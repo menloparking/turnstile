@@ -52,41 +52,41 @@ class ArticlePolicy < Turnstile::Authorization::Policy
   permission :archive, description: "archive an article"
 
   def show?
-    allow(:show)
+    allow
   end
 
   def create?
     if user&.admin? || user&.editor?
-      allow(:create)
+      allow
     else
-      deny(:create, reason: "only admins and editors may create")
+      deny(reason: "only admins and editors may create")
     end
   end
 
   def update?
     if user&.admin?
-      allow(:update)
+      allow
     elsif user&.editor? && record.author_id == user.id
-      allow(:update)
+      allow
     else
-      deny(:update, reason: "you do not own this article")
+      deny(reason: "you do not own this article")
     end
   end
 
   def destroy?
-    user&.admin? ? allow(:destroy) : deny(:destroy, reason: "admin only")
+    user&.admin? ? allow : deny(reason: "admin only")
   end
 
   def publish?
     if user&.admin? || user&.editor?
-      allow(:publish)
+      allow
     else
-      deny(:publish, reason: "insufficient role")
+      deny(reason: "insufficient role")
     end
   end
 
   def archive?
-    deny(:archive, reason: "archiving disabled")
+    deny(reason: "archiving disabled")
   end
 
   # Scope filters collections so users only see records they may access.
@@ -163,11 +163,11 @@ Model-level, context-free authorization. "Can user X do Y to record Z?"
 ```ruby
 class ArticlePolicy < Turnstile::Authorization::Policy
   def show?
-    allow(:show)
+    allow
   end
 
   def destroy?
-    user&.admin? ? allow(:destroy) : deny(:destroy, reason: "admin only")
+    user&.admin? ? allow : deny(reason: "admin only")
   end
 end
 ```
@@ -183,7 +183,7 @@ For truly public resources or during development:
 class PublicPagePolicy < Turnstile::Authorization::PermitAll
   # Everything allowed by default. Lock down selectively:
   def destroy?
-    deny(:destroy, reason: "pages are immutable")
+    deny(reason: "pages are immutable")
   end
 end
 ```
@@ -233,9 +233,9 @@ class ArticleContextPolicy < Turnstile::Authorization::ContextPolicy
     forbidden = changed & %i[published author_id]
 
     if forbidden.any? && !user&.admin?
-      deny(:update, reason: "cannot modify #{forbidden.join(", ")}")
+      deny(reason: "cannot modify #{forbidden.join(", ")}")
     else
-      allow(:update)
+      allow
     end
   end
 end
@@ -275,16 +275,16 @@ queried by the `Presented` decorator. No separate view policy tier is needed.
 ```ruby
 class ArticlePolicy < Turnstile::Authorization::Policy
   def show?
-    allow(:show)
+    allow
   end
 
   # Attribute visibility:
   def title_allowed?
-    allow(:title)
+    allow
   end
 
   def body_allowed?
-    user&.admin? ? allow(:body) : deny(:body, reason: "restricted")
+    user&.admin? ? allow : deny(reason: "restricted")
   end
 end
 ```

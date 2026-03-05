@@ -34,8 +34,9 @@ module Turnstile
 
       private
 
-      def allow: (Symbol) -> Result
-      def deny: (Symbol, ?reason: String?) -> Result
+      def allow: (?Symbol?) -> Result
+      def deny: (?Symbol?, ?reason: String?) -> Result
+      def infer_permission: -> Symbol
       def log: (String, ?level: Symbol) -> void
     end
 

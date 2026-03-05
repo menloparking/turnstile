@@ -20,11 +20,11 @@ module Turnstile
     #     permission :destroy, description: "delete an article"
     #
     #     def show?
-    #       allow(:show)
+    #       allow
     #     end
     #
     #     def create?
-    #       user&.admin? ? allow(:create) : deny(:create,
+    #       user&.admin? ? allow : deny(
     #         reason: "only administrators may create articles")
     #     end
     #   end
@@ -87,15 +87,29 @@ module Turnstile
 
       private
 
-      # Build an allowing Result.
-      def allow(permission_name)
+      # Build an allowing Result. When called without a name,
+      # infers the permission from the calling method:
+      # `def update?` → `:update`.
+      def allow(permission_name = nil)
+        permission_name ||= infer_permission
         Result.new(true, permission: permission_name)
       end
 
-      # Build a denying Result with an optional reason.
-      def deny(permission_name, reason: nil)
+      # Build a denying Result with an optional reason. When
+      # called without a name, infers the permission from the
+      # calling method: `def update?` → `:update`.
+      def deny(permission_name = nil, reason: nil)
+        permission_name ||= infer_permission
         Result.new(false, permission: permission_name,
           reason: reason)
+      end
+
+      # Derive the permission name from the method that called
+      # allow/deny. `def update?` → `:update`,
+      # `def title_allowed?` → `:title_allowed`.
+      def infer_permission
+        name = caller_locations(2, 1)&.first&.base_label.to_s
+        name.delete_suffix("?").to_sym
       end
 
       # Catch permission query methods (ending in ?) that

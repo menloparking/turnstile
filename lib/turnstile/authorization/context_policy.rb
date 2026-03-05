@@ -29,10 +29,10 @@ module Turnstile
     #         .map(&:to_sym)
     #       forbidden = changed & [:published_at, :author_id]
     #       if forbidden.any? && !user&.admin?
-    #         deny(:update,
+    #         deny(
     #           reason: "cannot modify #{forbidden.join(", ")}")
     #       else
-    #         allow(:update)
+    #         allow
     #       end
     #     end
     #   end
