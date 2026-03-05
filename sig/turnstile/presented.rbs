@@ -3,16 +3,19 @@ module Turnstile
     PASSTHROUGH_METHODS: Array[Symbol]
 
     attr_reader __record__: untyped
-    attr_reader __view_policy__: Authorization::ViewPolicy?
+    attr_reader __policy__: Authorization::Policy?
     attr_reader __user__: untyped
 
-    def initialize: (
-      untyped record,
-      untyped user,
-      ?view_policy: Authorization::ViewPolicy?
-    ) -> void
+    def initialize: (untyped record, untyped user) -> void
 
     def unwrap: -> untyped
+    def policy: -> Authorization::Policy?
+    def allowed?: (Symbol | String) -> bool
+    def if_allowed: (Symbol | String) ?{ (untyped) -> untyped } -> IfAllowedResult
+    def allowed: (Symbol | String) -> untyped
+    def []: (Symbol | String) -> untyped
+    def fetch: (Symbol | String) ?{ -> untyped } -> untyped
+    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
     def ==: (untyped other) -> bool
     def eql?: (untyped other) -> bool
     def hash: -> Integer
@@ -35,13 +38,19 @@ module Turnstile
     def respond_to?: (Symbol | String, ?bool) -> bool
     def inspect: -> String
 
+    class IfAllowedResult
+      def initialize: (bool allowed, untyped value) -> void
+      def else: ?{ -> untyped } -> untyped
+    end
+
     private
 
-    def resolve_view_policy: -> Authorization::ViewPolicy?
+    def resolve_policy: -> Authorization::Policy?
     def method_missing: (Symbol, *untyped) ?{ (*untyped) -> untyped } -> untyped
     def respond_to_missing?: (Symbol | String, ?bool) -> bool
     def guarded_attribute?: (Symbol | String) -> bool
     def guard_attribute: (Symbol | String) -> void
     def maybe_present_association: (Symbol | String, untyped) -> untyped
+    def column_names: -> Array[Symbol]
   end
 end

@@ -35,6 +35,12 @@ ActiveRecord::Schema.define do
     t.boolean :visible, default: true
     t.timestamps
   end
+
+  create_table :widgets, force: true do |t|
+    t.string :label
+    t.text :description
+    t.timestamps
+  end
 end
 
 # Minimal models.
@@ -49,6 +55,10 @@ class User < ActiveRecord::Base
 
   def hr? = role == "hr"
 end
+
+class Page < ActiveRecord::Base; end
+
+class Widget < ActiveRecord::Base; end
 
 # --- Policies used across tests ---
 
@@ -102,6 +112,37 @@ class ArticlePolicy < Turnstile::Authorization::Policy
 
   def archive? = deny(:archive, reason: "archiving disabled")
 
+  # Attribute visibility via _allowed? convention.
+  # DenyAll: attributes without an _allowed? method are
+  # hidden by default in Presented.
+
+  def title_allowed? = allow(:title_allowed)
+
+  def published_allowed? = allow(:published_allowed)
+
+  def created_at_allowed? = allow(:created_at_allowed)
+
+  def updated_at_allowed? = allow(:updated_at_allowed)
+
+  def body_allowed?
+    if record.respond_to?(:published?) && record.published? ||
+        user&.admin?
+      allow(:body_allowed)
+    else
+      deny(:body_allowed,
+        reason: "article not yet published")
+    end
+  end
+
+  def author_id_allowed?
+    if user&.admin? || user&.editor?
+      allow(:author_id_allowed)
+    else
+      deny(:author_id_allowed,
+        reason: "restricted to staff")
+    end
+  end
+
   class Scope < Turnstile::Authorization::Policy::Scope
     def resolve
       if user&.admin?
@@ -112,6 +153,12 @@ class ArticlePolicy < Turnstile::Authorization::Policy
     end
   end
 end
+
+# WidgetPolicy inherits from Policy (not PermitAll), with
+# no _allowed? methods. Every column attribute is denied by
+# default in Presented — pure DenyAll. Used to test the
+# DenyAll behavior for attributes without _allowed? methods.
+class WidgetPolicy < Turnstile::Authorization::Policy; end
 
 class ArticleContextPolicy <
   Turnstile::Authorization::ContextPolicy
@@ -136,52 +183,6 @@ class ArticleContextPolicy <
     else
       allow(:update)
     end
-  end
-end
-
-class ArticleViewPolicy <
-  Turnstile::Authorization::ViewPolicy
-  permission :show_author,
-    description: "see author details"
-  permission :show_body,
-    description: "see full article body"
-
-  # Attribute visibility declarations.
-  attribute :title, default: :visible
-  attribute :body, default: :hidden
-  attribute :published, default: :visible
-  attribute :author_id, default: :hidden
-  attribute :created_at, default: :visible
-  attribute :updated_at, default: :visible
-
-  def show_author?
-    if user&.admin? || user&.editor?
-      allow(:show_author)
-    else
-      deny(:show_author,
-        reason: "restricted to staff")
-    end
-  end
-
-  def show_body?
-    if record.respond_to?(:published?) && record.published? ||
-        user&.admin?
-      allow(:show_body)
-    else
-      deny(:show_body,
-        reason: "article not yet published")
-    end
-  end
-
-  # Override the default-hidden body attribute: same rule
-  # as show_body? permission.
-  def body_visible?
-    show_body?
-  end
-
-  # Override author_id: visible to staff.
-  def author_id_visible?
-    show_author?
   end
 end
 

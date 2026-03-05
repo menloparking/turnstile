@@ -94,10 +94,6 @@ module Turnstile
       end
     end
 
-    class ViewPolicy < Policy
-      def visibility: (*Symbol) -> Hash[Symbol, bool]
-    end
-
     module Resolver
       SUFFIXES: Hash[Symbol, String]
 

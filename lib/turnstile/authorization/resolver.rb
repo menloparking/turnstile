@@ -7,8 +7,8 @@ module Turnstile
     # bridge between a controller saying "authorize this" and
     # the correct policy class being instantiated.
     #
-    # Convention: a model `Article` resolves to `ArticlePolicy`,
-    # `ArticleContextPolicy`, or `ArticleViewPolicy` depending
+    # Convention: a model `Article` resolves to
+    # `ArticlePolicy` or `ArticleContextPolicy` depending
     # on the policy type requested.
     #
     # The host application may set a namespace prefix via
@@ -16,8 +16,7 @@ module Turnstile
     module Resolver
       SUFFIXES = {
         general: "Policy",
-        context: "ContextPolicy",
-        view: "ViewPolicy"
+        context: "ContextPolicy"
       }.freeze
 
       module_function
@@ -25,7 +24,7 @@ module Turnstile
       # Resolve a policy class for the given record.
       #
       # @param record [Object, Symbol, String, Class]
-      # @param type [:general, :context, :view]
+      # @param type [:general, :context]
       # @return [Class, nil]
       def resolve(record, type: :general)
         base_name = model_name_for(record)
@@ -45,7 +44,7 @@ module Turnstile
       # Resolve or raise.
       #
       # @param record [Object, Symbol, String, Class]
-      # @param type [:general, :context, :view]
+      # @param type [:general, :context]
       # @return [Class]
       # @raise [PolicyNotFoundError]
       def resolve!(record, type: :general)

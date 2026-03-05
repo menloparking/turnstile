@@ -12,7 +12,6 @@ module Turnstile
       **untyped opts
     ) -> Result
 
-    def view_policy: (untyped record) -> Authorization::ViewPolicy?
     def policy: (untyped record) -> Authorization::Policy
     def policy_scope: (untyped scope) -> untyped
     def skip_authorization: -> void

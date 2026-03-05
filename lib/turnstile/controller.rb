@@ -4,7 +4,7 @@ require "active_support/concern"
 
 module Turnstile
   # Controller concern that weaves together resource loading and
-  # three-tier authorization. Include this in your
+  # layered authorization. Include this in your
   # ApplicationController (or specific controllers) to gain
   # automatic resource loading, authorization hooks, and the
   # DSL for customizing both.
@@ -43,7 +43,7 @@ module Turnstile
       before_action :turnstile_load_and_authorize
       attr_writer :turnstile_authorization_performed
 
-      helper_method :view_policy, :policy
+      helper_method :policy
     end
 
     # Instance methods mixed into every controller that
@@ -71,16 +71,6 @@ module Turnstile
       )
       self.turnstile_authorization_performed = true
       result
-    end
-
-    # Query a view policy for the current user and a record.
-    def view_policy(record)
-      klass = Authorization::Resolver.resolve(
-        record, type: :view
-      )
-      return nil unless klass
-
-      klass.new(turnstile_user, record)
     end
 
     # Get an instantiated general policy for ad-hoc queries.

@@ -42,21 +42,14 @@ module Turnstile
       assert_equal @reader, p.__user__
     end
 
-    def test_resolves_view_policy_automatically
+    def test_resolves_policy_automatically
       p = Presented.new(@published, @reader)
-      assert_instance_of ArticleViewPolicy,
-        p.__view_policy__
+      assert_instance_of ArticlePolicy, p.__policy__
     end
 
-    def test_accepts_explicit_view_policy
-      vp = ArticleViewPolicy.new(@admin, @published)
-      p = Presented.new(@published, @admin, view_policy: vp)
-      assert_equal vp, p.__view_policy__
-    end
-
-    def test_nil_view_policy_for_unresolvable_record
+    def test_nil_policy_for_unresolvable_record
       p = Presented.new(@reader, @admin)
-      assert_nil p.__view_policy__
+      assert_nil p.__policy__
     end
 
     # --- Unwrap ---
@@ -64,6 +57,14 @@ module Turnstile
     def test_unwrap_returns_raw_record
       p = Presented.new(@published, @reader)
       assert_same @published, p.unwrap
+    end
+
+    # --- policy accessor ---
+
+    def test_policy_returns_resolved_policy
+      p = Presented.new(@published, @reader)
+      assert_instance_of ArticlePolicy, p.policy
+      assert_same p.__policy__, p.policy
     end
 
     # --- Rails identity methods ---
@@ -214,12 +215,30 @@ module Turnstile
       assert_equal "The Fall of Gondolin", p.title
     end
 
+    # --- DenyAll: attribute with no _allowed? method ---
+
+    def test_deny_all_for_attribute_without_allowed_method
+      # WidgetPolicy < Policy defines no _allowed? methods,
+      # so every column attribute is denied by default.
+      widget = ::Widget.create!(label: "Test")
+      p = Presented.new(widget, @reader)
+      assert_raises(AttributeDeniedError) { p.label }
+    ensure
+      ::Widget.delete_all
+    end
+
+    def test_deny_all_lenient_returns_nil
+      Turnstile.configure { |c| c.presented_mode = :lenient }
+      widget = ::Widget.create!(label: "Test")
+      p = Presented.new(widget, @reader)
+      assert_nil p.label
+    ensure
+      ::Widget.delete_all
+    end
+
     # --- Unguarded methods pass through ---
 
     def test_non_attribute_methods_pass_through
-      # created_at is a declared attribute (default: visible),
-      # so it passes. But let's call a method not in the
-      # attribute rules at all — e.g. valid?
       p = Presented.new(@published, @reader)
       assert p.valid?
     end
@@ -233,12 +252,137 @@ module Turnstile
       assert_includes p.inspect, @published.id.to_s
     end
 
-    # --- No view policy: everything passes through ---
+    # --- No policy: everything passes through ---
 
-    def test_no_view_policy_passes_through
-      # User has no ViewPolicy
+    def test_no_policy_passes_through
+      # User has no UserPolicy
       p = Presented.new(@reader, @admin)
       assert_equal "Frodo", p.name
+    end
+
+    # --- allowed? predicate ---
+
+    def test_allowed_predicate_true_for_visible_attr
+      p = Presented.new(@published, @reader)
+      assert p.allowed?(:title)
+    end
+
+    def test_allowed_predicate_false_for_denied_attr
+      p = Presented.new(@draft, @reader)
+      refute p.allowed?(:body)
+    end
+
+    def test_allowed_predicate_false_for_missing_method
+      widget = ::Widget.create!(label: "X")
+      p = Presented.new(widget, @reader)
+      refute p.allowed?(:label)
+    ensure
+      ::Widget.delete_all
+    end
+
+    def test_allowed_predicate_true_without_policy
+      p = Presented.new(@reader, @admin)
+      assert p.allowed?(:name)
+    end
+
+    # --- if_allowed block guard ---
+
+    def test_if_allowed_yields_when_allowed
+      p = Presented.new(@published, @reader)
+      yielded = nil
+      p.if_allowed(:title) { |v| yielded = v }
+      assert_equal "The Fall of Gondolin", yielded
+    end
+
+    def test_if_allowed_does_not_yield_when_denied
+      p = Presented.new(@draft, @reader)
+      yielded = :not_called
+      p.if_allowed(:body) { |v| yielded = v }
+      assert_equal :not_called, yielded
+    end
+
+    def test_if_allowed_else_returns_value_when_allowed
+      p = Presented.new(@published, @reader)
+      result = p.if_allowed(:title) { |v| v.upcase }
+        .else { "fallback" }
+      assert_equal "The Fall of Gondolin", result
+    end
+
+    def test_if_allowed_else_yields_fallback_when_denied
+      p = Presented.new(@draft, @reader)
+      result = p.if_allowed(:body) { |v| v }
+        .else { "redacted" }
+      assert_equal "redacted", result
+    end
+
+    # --- allowed(attr) ---
+
+    def test_allowed_returns_value_when_permitted
+      p = Presented.new(@published, @reader)
+      assert_equal "The Fall of Gondolin",
+        p.allowed(:title)
+    end
+
+    def test_allowed_returns_nil_when_denied
+      p = Presented.new(@draft, @reader)
+      assert_nil p.allowed(:body)
+    end
+
+    # --- [] hash-like access ---
+
+    def test_bracket_returns_value_when_permitted
+      p = Presented.new(@published, @reader)
+      assert_equal "The Fall of Gondolin", p[:title]
+    end
+
+    def test_bracket_returns_nil_when_denied
+      p = Presented.new(@draft, @reader)
+      assert_nil p[:body]
+    end
+
+    # --- fetch with fallback ---
+
+    def test_fetch_returns_value_when_permitted
+      p = Presented.new(@published, @reader)
+      assert_equal "The Fall of Gondolin",
+        p.fetch(:title) { "fallback" }
+    end
+
+    def test_fetch_returns_fallback_when_denied
+      p = Presented.new(@draft, @reader)
+      result = p.fetch(:body) { "redacted" }
+      assert_equal "redacted", result
+    end
+
+    def test_fetch_returns_nil_when_denied_no_block
+      p = Presented.new(@draft, @reader)
+      assert_nil p.fetch(:body)
+    end
+
+    # --- deconstruct_keys (pattern matching) ---
+
+    def test_deconstruct_keys_includes_allowed_attrs
+      p = Presented.new(@published, @reader)
+      h = p.deconstruct_keys(%i[title body])
+      assert_equal "The Fall of Gondolin", h[:title]
+      # body is allowed on published article for reader
+      assert_equal "A tale of hidden cities", h[:body]
+    end
+
+    def test_deconstruct_keys_omits_denied_attrs
+      p = Presented.new(@draft, @reader)
+      h = p.deconstruct_keys(%i[title body author_id])
+      assert_equal "Secret Lore", h[:title]
+      refute h.key?(:body)
+      refute h.key?(:author_id)
+    end
+
+    def test_deconstruct_keys_nil_returns_all_allowed
+      p = Presented.new(@published, @admin)
+      h = p.deconstruct_keys(nil)
+      assert h.key?(:title)
+      assert h.key?(:body)
+      assert h.key?(:author_id)
     end
   end
 

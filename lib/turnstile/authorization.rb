@@ -7,19 +7,20 @@ require_relative "authorization/policy"
 require_relative "authorization/permit_all"
 require_relative "authorization/request_context"
 require_relative "authorization/context_policy"
-require_relative "authorization/view_policy"
 require_relative "authorization/resolver"
 
 module Turnstile
-  # The Authorization subsystem provides three tiers of policy:
+  # The Authorization subsystem provides two tiers of policy:
   #
   # 1. *General policies* (Policy) — context-free, model-level
   #    authorization. "Can user X do Y to record Z?"
   # 2. *Context policies* (ContextPolicy) — request-aware
   #    refinements. "Given this HTTP request, can user X do Y
   #    to record Z with these parameters?"
-  # 3. *View policies* (ViewPolicy) — visibility decisions.
-  #    "Should user X see field F of record Z?"
+  #
+  # Attribute visibility is handled through the `_allowed?`
+  # convention on general policies, queried by the Presented
+  # decorator.
   #
   # All policies default to deny-all and expose a reflection
   # API for enumerating their permissions and metadata.
@@ -54,30 +55,9 @@ module Turnstile
         bang: bang)
     end
 
-    # Query a view policy. Returns the Result.
-    def authorize_view(user, record, permission, bang: false)
-      klass = Resolver.resolve(record, type: :view)
-      return nil unless klass
-
-      policy = klass.new(user, record)
-      result = policy.public_send(:"#{permission}?")
-      handle_result(result, user, record, permission, klass,
-        bang: bang)
-    end
-
     # Return an instantiated general policy for ad-hoc use.
     def policy_for(user, record)
       klass = Resolver.resolve!(record, type: :general)
-      klass.new(user, record)
-    end
-
-    # Return an instantiated view policy for ad-hoc use.
-    # Returns nil when no view policy is defined for the
-    # record's class.
-    def view_policy_for(user, record)
-      klass = Resolver.resolve(record, type: :view)
-      return nil unless klass
-
       klass.new(user, record)
     end
 

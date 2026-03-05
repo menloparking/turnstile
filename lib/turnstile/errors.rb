@@ -68,8 +68,8 @@ module Turnstile
   end
 
   # Raised when a presented record's attribute is accessed
-  # but the view policy denies visibility. Only raised in
-  # strict mode (the default).
+  # but the policy denies visibility. Only raised in strict
+  # mode (the default).
   class AttributeDeniedError < Error
     # @return [Symbol] the attribute that was denied
     attr_reader :attribute
@@ -77,7 +77,7 @@ module Turnstile
     # @return [Object] the record whose attribute was guarded
     attr_reader :record
 
-    # @return [String, nil] reason from the view policy
+    # @return [String, nil] reason from the policy
     attr_reader :reason
 
     def initialize(attribute:, record:, reason: nil)

@@ -39,6 +39,12 @@ ActiveRecord::Schema.define do
     t.boolean :visible, default: true
     t.timestamps
   end
+
+  create_table :widgets, force: true do |t|
+    t.string :label
+    t.text :description
+    t.timestamps
+  end
 end
 
 Dir[
@@ -100,11 +106,6 @@ Rails.application.routes.draw do
   # Test-only route to set the session user.
   post "test_sign_in", to: "test_sessions#create"
 
-  # Test-only route for view policy verification.
-  get "articles/:id/view_info",
-    to: "article_views#show",
-    as: :article_view_info
-
   # Test-only routes for presentation verification.
   get "articles/:id/present_info",
     to: "article_present#show",
@@ -128,31 +129,6 @@ class TestSessionsController < ApplicationController
   def create
     session[:user_id] = params[:user_id]
     render plain: "signed in", status: :ok
-  end
-end
-
-# Controller that exercises the view_policy helper.
-class ArticleViewsController < ApplicationController
-  include Turnstile::Controller
-
-  skip_authorization :show
-  skip_loading :show
-
-  def show
-    article = Article.find(params[:id])
-    vp = view_policy(article)
-
-    visible = vp.visible_attributes.sort.join(",")
-    hidden = vp.hidden_attributes.sort.join(",")
-    body_ok = vp.visible_attribute?(:body).allowed?
-    author_ok = vp.visible_attribute?(:author_id).allowed?
-
-    render plain: [
-      "visible:#{visible}",
-      "hidden:#{hidden}",
-      "body:#{body_ok}",
-      "author:#{author_ok}"
-    ].join("\n")
   end
 end
 
@@ -563,142 +539,6 @@ class RequestPolicyMiddlewareIntegrationTest <
     Turnstile.configure { |c| c.request_policy = nil }
     get "/health"
     assert_response :ok
-  end
-end
-
-# ==========================================================
-# View policy integration tests.
-# These verify the view_policy helper is accessible from a
-# controller through the full Rails stack.
-# ==========================================================
-
-class ViewPolicyIntegrationTest <
-  ActionDispatch::IntegrationTest
-  def setup
-    Turnstile.reset_configuration!
-    @admin = User.create!(name: "Gandalf", role: "admin")
-    @editor = User.create!(name: "Frodo", role: "editor")
-    @reader = User.create!(name: "Sam", role: "viewer")
-
-    @published = Article.create!(
-      title: "Visible Tale",
-      body: "A published story.",
-      published: true,
-      author_id: @editor.id
-    )
-    @draft = Article.create!(
-      title: "Hidden Tale",
-      body: "A draft story.",
-      published: false,
-      author_id: @editor.id
-    )
-  end
-
-  def teardown
-    Article.delete_all
-    User.delete_all
-  end
-
-  def sign_in(user)
-    post "/test_sign_in", params: {user_id: user.id}
-    assert_response :ok
-  end
-
-  # Admin sees body and author_id (both override methods
-  # allow for admin).
-  def test_admin_sees_all_attributes_on_published
-    sign_in(@admin)
-    get "/articles/#{@published.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:true"
-    assert_includes response.body, "author:true"
-    # All six declared attrs should be visible for admin.
-    assert_includes response.body, "hidden:"
-  end
-
-  # Admin sees body even on draft (admin? override).
-  def test_admin_sees_body_on_draft
-    sign_in(@admin)
-    get "/articles/#{@draft.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:true"
-    assert_includes response.body, "author:true"
-  end
-
-  # Editor sees author_id (staff), sees body on published.
-  def test_editor_sees_body_and_author_on_published
-    sign_in(@editor)
-    get "/articles/#{@published.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:true"
-    assert_includes response.body, "author:true"
-  end
-
-  # Editor cannot see body on draft (not published, not
-  # admin).
-  def test_editor_cannot_see_body_on_draft
-    sign_in(@editor)
-    get "/articles/#{@draft.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:false"
-    assert_includes response.body, "author:true"
-  end
-
-  # Reader cannot see body on draft or author_id.
-  def test_reader_cannot_see_body_or_author
-    sign_in(@reader)
-    get "/articles/#{@draft.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:false"
-    assert_includes response.body, "author:false"
-  end
-
-  # Reader can see body on published article.
-  def test_reader_sees_body_on_published
-    sign_in(@reader)
-    get "/articles/#{@published.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:true"
-    assert_includes response.body, "author:false"
-  end
-
-  # Unauthenticated: nil user cannot see body on draft.
-  def test_nil_user_cannot_see_body_on_draft
-    get "/articles/#{@draft.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:false"
-    assert_includes response.body, "author:false"
-  end
-
-  # Unauthenticated: nil user can see body on published.
-  def test_nil_user_sees_body_on_published
-    get "/articles/#{@published.id}/view_info"
-    assert_response :ok
-
-    assert_includes response.body, "body:true"
-    assert_includes response.body, "author:false"
-  end
-
-  # Verify visible/hidden attribute lists for reader on
-  # draft.
-  def test_attribute_lists_for_reader_on_draft
-    sign_in(@reader)
-    get "/articles/#{@draft.id}/view_info"
-    assert_response :ok
-
-    # title, published, created_at, updated_at visible.
-    # body, author_id hidden.
-    assert_includes response.body,
-      "visible:created_at,published,title,updated_at"
-    assert_includes response.body,
-      "hidden:author_id,body"
   end
 end
 

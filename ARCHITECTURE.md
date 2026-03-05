@@ -15,12 +15,12 @@ the gate remains shut.
   reason.
 - **Convention over configuration.** Controller name maps to model class; model class maps
   to policy class. Every convention is overridable.
-- **Separation of concerns across tiers.** Authorization questions are split into four
-  distinct layers (request, model, context, view), each with its own base class.
+- **Separation of concerns across tiers.** Authorization questions are split into three
+  distinct layers (request, model, context), each with its own base class.
 - **Introspectability.** The Reflection API enumerates all permissions a policy governs
   without making authorization decisions.
 
-## The Four Authorization Tiers
+## The Three Authorization Tiers
 
 ### Tier 0 — Request Policies (Rack-level)
 
@@ -82,36 +82,60 @@ automatically falls through.
 When the controller authorizes, the `Authorization` module tries a context policy first. If
 none exists, it falls back to the general policy. Context policies are opt-in refinements.
 
-### Tier 3 — View Policies (visibility)
+### Attribute Visibility — the `_allowed?` Convention
 
-Two complementary facets:
-
-1. **Section/element permissions.** Coarse-grained ("should user see the admin panel?").
-   Declared with `permission :show_admin_panel` and queried with `show_admin_panel?`.
-
-2. **Attribute visibility.** Fine-grained per-attribute control.
+Attribute visibility is handled through general policies, not a separate tier. The
+`Presented` decorator queries `<attr>_allowed?` methods on the general policy to decide
+whether a column attribute may be read.
 
 ```ruby
-class ArticleViewPolicy < Turnstile::Authorization::ViewPolicy
-  attribute :title,     default: :visible
-  attribute :body,      default: :hidden
-  attribute :author_id, default: :hidden
+class ArticlePolicy < Turnstile::Authorization::Policy
+  def title_allowed?
+    allow(:title)
+  end
 
-  def body_visible?    = show_body?
-  def author_id_visible? = show_author?
+  def body_allowed?
+    user&.admin? ? allow(:body) : deny(:body, reason: "restricted")
+  end
 end
 ```
 
-Resolution order for each attribute:
+DenyAll applies: if no `_allowed?` method exists for an attribute, the decorator denies
+access by default.
 
-1. A method `<name>_visible?` on the policy instance
-2. The declared default (`:visible` or `:hidden`)
-3. Undeclared attributes → deny
+### Presented Decorator
 
-Helper methods: `visible_attributes`, `hidden_attributes`, `filter_attributes(source)`.
+`Turnstile::Presented` wraps an ActiveRecord record and its resolved general policy. Column
+attribute reads route through `method_missing`, which checks `<attr>_allowed?` before
+delegating. Non-column methods pass through unguarded.
 
-View policies **strip inherited CRUD permissions** by truncating the ancestor chain walk at
-`Policy`, preventing CRUD permissions from bleeding into the view tier.
+In **strict** mode (`presented_mode = :strict`), denied attributes raise
+`AttributeDeniedError`. In **lenient** mode, they return `nil`.
+
+Rich access API:
+
+| Method                    | Behaviour                                    |
+| ------------------------- | -------------------------------------------- |
+| `allowed?(attr)`          | Predicate — returns boolean                  |
+| `if_allowed(attr) { v }` | Block guard; returns `IfAllowedResult`       |
+| `.else { fallback }`      | Chained fallback on `IfAllowedResult`        |
+| `allowed(attr)`           | Returns value or nil                         |
+| `[attr]`                  | Hash-like access; value or nil               |
+| `fetch(attr) { fallback }`| Value or block fallback                      |
+| `deconstruct_keys(keys)`  | Pattern matching; denied keys absent         |
+| `policy`                  | The resolved general policy instance         |
+| `unwrap`                  | Escape hatch — the raw record                |
+
+Rails identity methods (`to_param`, `to_key`, `model_name`, `persisted?`, `id`, etc.)
+pass through unguarded so that form builders, link helpers, and routing work without
+ceremony. Type checks (`is_a?`, `kind_of?`) delegate to the record.
+
+Associations that have their own policy are wrapped recursively (deep presentation).
+Collections become `PresentedCollection` instances.
+
+Auto-presentation: the controller concern wraps loaded resources in `Presented` or
+`PresentedCollection` for read actions (`show`, `edit`, `index`). Write actions (`create`,
+`update`, `destroy`) receive raw records for mutation. Skip with `skip_presentation`.
 
 ## Resource Loading
 
@@ -178,7 +202,6 @@ before_action :turnstile_load_and_authorize
 Public instance methods (also available as view helpers):
 
 - `authorize(record, permission)` — manual authorization with context
-- `view_policy(record)` — instantiated view policy
 - `policy(record)` — instantiated general policy
 - `policy_scope(scope)` — apply policy scope to a relation
 - `skip_authorization` — mark authorization as intentionally skipped
@@ -218,6 +241,7 @@ Turnstile::Error
 ├── NotAuthorizedError   (user, record, permission, policy, reason)
 ├── PolicyNotFoundError  (record)
 ├── AuthorizationNotPerformedError
+├── AttributeDeniedError (attribute, record, reason)
 └── ResourceNotFoundError (resource_class, resource_id)
 ```
 
@@ -259,7 +283,6 @@ lib/
       permit_all.rb                     # PermitAll convenience policy
       request_context.rb                # frozen request wrapper
       context_policy.rb                 # request-aware policy refinements
-      view_policy.rb                    # attribute visibility + section perms
       resolver.rb                       # convention-based policy class lookup
     request_policy.rb                   # barrel require
     request_policy/
@@ -272,6 +295,8 @@ lib/
       dsl.rb                            # class-level macros
       loader.rb                         # runtime loading engine
     controller.rb                       # ActiveSupport::Concern
+    presented.rb                        # attribute-guarding decorator
+    presented_collection.rb             # collection wrapper
     railtie.rb                          # Rails integration
 sig/                                    # RBS type signatures
 test/

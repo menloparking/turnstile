@@ -2,7 +2,7 @@
 
 Resource loading and layered authorization for Rails controllers.
 
-Turnstile provides automatic resource loading and a three-tier authorization system for Rails
+Turnstile provides automatic resource loading and a two-tier authorization system for Rails
 controllers backed by ActiveRecord. Every permission denies by default. Policies return rich
 `Result` objects with human-readable denial reasons rather than bare booleans, and expose a
 reflection API for static analysis and documentation tooling.
@@ -11,8 +11,8 @@ reflection API for static analysis and documentation tooling.
 
 - **Deny-all by default** -- the base `Policy` class denies every query. Permissions must be
   explicitly granted.
-- **Three-tier authorization** -- general (model-level), context (request-aware), and view
-  (visibility) policies.
+- **Two-tier authorization** -- general (model-level) and context (request-aware) policies,
+  with attribute visibility via the `_allowed?` convention on general policies.
 - **Automatic resource loading** -- controllers infer the model class from their name and load
   records via `before_action`, scoped through policy scopes for security.
 - **Result objects** -- every permission query returns a frozen `Result` carrying the boolean
@@ -267,45 +267,69 @@ The `RequestContext` value object exposes:
 | `headers`         | Request headers                     |
 | `xhr?`            | Whether the request is XHR          |
 
-### View policies (ViewPolicy)
+### Attribute visibility — the `_allowed?` convention
 
-Visibility decisions: which fields, sections, or UI elements should be shown. View policies do
-*not* inherit CRUD permissions from the base `Policy` -- they have their own permission namespace.
+Attribute visibility is handled through general policies using `<attr>_allowed?` methods,
+queried by the `Presented` decorator. No separate view policy tier is needed.
 
 ```ruby
-class ArticleViewPolicy < Turnstile::Authorization::ViewPolicy
-  permission :show_author,     description: "see author details"
-  permission :show_admin_panel, description: "see admin controls"
-
-  def show_author?
-    user&.admin? || user&.editor? ? allow(:show_author)
-      : deny(:show_author, reason: "restricted to staff")
+class ArticlePolicy < Turnstile::Authorization::Policy
+  def show?
+    allow(:show)
   end
 
-  def show_admin_panel?
-    user&.admin? ? allow(:show_admin_panel)
-      : deny(:show_admin_panel)
+  # Attribute visibility:
+  def title_allowed?
+    allow(:title)
+  end
+
+  def body_allowed?
+    user&.admin? ? allow(:body) : deny(:body, reason: "restricted")
   end
 end
 ```
 
-Batch query:
+DenyAll applies: if no `_allowed?` method exists for a column attribute, the decorator
+denies access by default.
+
+### Presented decorator
+
+The controller automatically wraps loaded resources in `Turnstile::Presented` for read
+actions. The decorator guards column attribute access through the policy's `_allowed?`
+methods.
 
 ```ruby
-policy = ArticleViewPolicy.new(current_user, @article)
-policy.visibility(:show_author, :show_admin_panel)
-# => { show_author: true, show_admin_panel: false }
+# In strict mode, denied attributes raise AttributeDeniedError.
+# In lenient mode, denied attributes return nil.
+presented = Turnstile::Presented.new(article, user)
+
+presented.title           # => "On Hobbits" (allowed)
+presented.body            # => raises AttributeDeniedError (denied)
+presented.unwrap          # => the raw Article record
+presented.policy          # => the resolved ArticlePolicy instance
+
+# Rich access API:
+presented.allowed?(:title)              # => true
+presented.allowed(:body)                # => nil (denied)
+presented[:title]                       # => "On Hobbits"
+presented.fetch(:body) { "Restricted" } # => "Restricted"
+
+presented.if_allowed(:body) { |v| render(v) }
+  .else { render("Restricted") }
+
+# Pattern matching (denied attributes absent):
+case presented
+in { title: String => t }
+  puts t
+end
 ```
 
-In controllers:
+Skip auto-presentation for specific actions:
 
 ```ruby
 class ArticlesController < ApplicationController
   include Turnstile::Controller
-
-  def show
-    @view_policy = view_policy(@article)
-  end
+  skip_presentation :raw_export
 end
 ```
 
@@ -399,7 +423,6 @@ end
 | ----------------------------------------- | ------------------------------------------------- |
 | `authorize(record, permission = nil)`     | Authorize with context (uses current action)      |
 | `authorize_without_context(record, perm)` | Authorize using general policy only               |
-| `view_policy(record)`                     | Get an instantiated view policy                   |
 | `policy(record)`                          | Get an instantiated general policy                |
 | `policy_scope(scope)`                     | Apply the policy scope to a relation              |
 | `skip_authorization`                      | Mark authorization as intentionally skipped       |
@@ -408,10 +431,10 @@ end
 
 The resolver maps records to policy classes by naming convention:
 
-| Record type      | General            | Context                  | View                 |
-| ---------------- | ------------------ | ------------------------ | -------------------- |
-| `Article` (class or instance) | `ArticlePolicy` | `ArticleContextPolicy` | `ArticleViewPolicy` |
-| `:article` (symbol) | `ArticlePolicy` | `ArticleContextPolicy`  | `ArticleViewPolicy`  |
+| Record type      | General            | Context                  |
+| ---------------- | ------------------ | ------------------------ |
+| `Article` (class or instance) | `ArticlePolicy` | `ArticleContextPolicy` |
+| `:article` (symbol) | `ArticlePolicy` | `ArticleContextPolicy`  |
 
 When `policy_namespace` is configured (e.g. `"Admin"`), the resolver tries `Admin::ArticlePolicy`
 first, then falls back to `ArticlePolicy`.
@@ -428,6 +451,7 @@ Turnstile defines four error classes, all inheriting from `Turnstile::Error`:
 | `NotAuthorizedError`             | A policy denied access (carries `user`, `record`, `permission`, `policy`, `reason`) |
 | `PolicyNotFoundError`            | No policy class found for a record                  |
 | `AuthorizationNotPerformedError` | A controller action completed without authorizing   |
+| `AttributeDeniedError`           | A presented attribute was denied (carries `attribute`, `record`, `reason`) |
 | `ResourceNotFoundError`          | A record was not found during loading (carries `resource_class`, `resource_id`) |
 
 Handle in your `ApplicationController`:
@@ -488,12 +512,13 @@ policy = ArticleContextPolicy.new(user, article, ctx)
 assert policy.update?.allowed?
 ```
 
-For view policies:
+For attribute visibility via Presented:
 
 ```ruby
-policy = ArticleViewPolicy.new(user, article)
-vis = policy.visibility(:show_author, :show_body)
-assert_equal true, vis[:show_author]
+presented = Turnstile::Presented.new(article, user)
+assert presented.allowed?(:title)
+refute presented.allowed?(:body)
+assert_nil presented.allowed(:body)
 ```
 
 Reset configuration between tests:
