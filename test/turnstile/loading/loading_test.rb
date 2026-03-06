@@ -193,6 +193,175 @@ module Turnstile
         )
         assert_equal({}, loader.load)
       end
+
+      # --- Explicit parent resource ---
+
+      def test_explicit_parent_loads_parent_and_child
+        author = User.create!(
+          name: "Boromir", role: "editor"
+        )
+        article = Article.create!(
+          title: "Nested",
+          published: true,
+          author_id: author.id
+        )
+        klass = controller_class(parent_class: User)
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :show,
+          params: {user_id: author.id, id: article.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal author, result[:@user]
+        assert_equal article, result[:@article]
+      end
+
+      def test_explicit_parent_scopes_child_collection
+        author = User.create!(
+          name: "Legolas", role: "editor"
+        )
+        own = Article.create!(
+          title: "Own",
+          published: true,
+          author_id: author.id
+        )
+        Article.create!(
+          title: "Other",
+          published: true,
+          author_id: nil
+        )
+        klass = controller_class(parent_class: User)
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :index,
+          params: {user_id: author.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal author, result[:@user]
+        articles = result[:@articles]
+        assert_equal [own], articles.to_a
+      end
+
+      def test_explicit_parent_with_custom_id_param
+        author = User.create!(
+          name: "Gimli", role: "editor"
+        )
+        article = Article.create!(
+          title: "Axe",
+          published: true,
+          author_id: author.id
+        )
+        klass = controller_class
+        klass.turnstile_config.parent_class = User
+        klass.turnstile_config.parent_id_param = :author_id
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :show,
+          params: {author_id: author.id, id: article.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal author, result[:@user]
+        assert_equal article, result[:@article]
+      end
+
+      def test_explicit_parent_raises_when_parent_not_found
+        klass = controller_class(parent_class: User)
+        assert_raises(ResourceNotFoundError) do
+          Loader.new(
+            controller_class: klass,
+            action_name: :show,
+            params: {user_id: 999_999, id: 1},
+            current_user: @admin
+          ).load
+        end
+      end
+
+      def test_explicit_parent_child_not_in_scope_raises
+        author = User.create!(
+          name: "Aragorn", role: "editor"
+        )
+        # Article belongs to a different author.
+        article = Article.create!(
+          title: "Orphan",
+          published: true,
+          author_id: nil
+        )
+        klass = controller_class(parent_class: User)
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :show,
+          params: {
+            user_id: author.id,
+            id: article.id
+          },
+          current_user: @admin
+        )
+        # The child is scoped through parent's association,
+        # so the orphan article is not found.
+        assert_raises(ResourceNotFoundError) do
+          loader.load
+        end
+      end
+
+      # --- Auto parent detection ---
+
+      def test_auto_parent_detects_from_params
+        author = User.create!(
+          name: "Faramir", role: "editor"
+        )
+        article = Article.create!(
+          title: "Auto",
+          published: true,
+          author_id: author.id
+        )
+        klass = controller_class(parent_auto: true)
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :show,
+          params: {user_id: author.id, id: article.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal author, result[:@user]
+        assert_equal article, result[:@article]
+      end
+
+      def test_auto_parent_ignores_nonexistent_models
+        # A param key that doesn't map to a model should
+        # be silently skipped; loading proceeds without
+        # a parent.
+        klass = controller_class(parent_auto: true)
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :show,
+          params: {
+            shire_id: 42,
+            id: @published.id
+          },
+          current_user: @admin
+        )
+        result = loader.load
+        refute result.key?(:@shire)
+        assert_equal @published, result[:@article]
+      end
+
+      def test_no_parent_when_disabled
+        # Without parent_class or parent_auto, *_id params
+        # are ignored.
+        klass = controller_class
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :show,
+          params: {user_id: 1, id: @published.id},
+          current_user: @admin
+        )
+        result = loader.load
+        refute result.key?(:@user)
+        assert_equal @published, result[:@article]
+      end
     end
 
     class DslTest < Minitest::Test
@@ -256,6 +425,45 @@ module Turnstile
         child.load_plural :search
         refute parent.turnstile_config
           .action_modes.key?(:search)
+      end
+
+      # --- Parent resource DSL ---
+
+      def test_auto_parent_sets_flag
+        klass = build_controller_class
+        klass.auto_parent
+        assert klass.turnstile_config.parent_auto
+      end
+
+      def test_parent_resource_sets_class
+        klass = build_controller_class
+        klass.parent_resource User
+        cfg = klass.turnstile_config
+        assert_equal User, cfg.parent_class
+        assert_nil cfg.parent_id_param
+      end
+
+      def test_parent_resource_with_id_param
+        klass = build_controller_class
+        klass.parent_resource User, id_param: :author_id
+        cfg = klass.turnstile_config
+        assert_equal User, cfg.parent_class
+        assert_equal :author_id, cfg.parent_id_param
+      end
+
+      def test_parent_config_inherits_via_dup
+        parent_ctrl = build_controller_class
+        parent_ctrl.parent_resource User
+        child_ctrl = Class.new(parent_ctrl)
+        child_ctrl.include Dsl
+
+        assert_equal User,
+          child_ctrl.turnstile_config.parent_class
+
+        # Override in child does not pollute parent.
+        child_ctrl.parent_resource Page
+        assert_equal User,
+          parent_ctrl.turnstile_config.parent_class
       end
 
       private

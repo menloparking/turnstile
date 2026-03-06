@@ -19,6 +19,9 @@ reflection API for static analysis and documentation tooling.
   verdict, the permission name, and an optional denial reason.
 - **Reflection API** -- enumerate permissions, descriptions, contextual flags, and parameter
   metadata without instantiating a policy.
+- **Parent resource scoping** -- nested routes are handled automatically. Declare an explicit
+  parent class or enable auto-detection from `*_id` params; the child is scoped through the
+  parent's ActiveRecord association.
 - **Controller DSL** -- customize loading behaviour per-action: override the model class, change
   the ID param, declare singular/plural/skip actions, or supply fully custom loader blocks.
 - **Devise-compatible but not Devise-dependent** -- defaults to `current_user` but works with any
@@ -407,6 +410,36 @@ class ArticlesController < ApplicationController
   skip_authorization :health_check
 end
 ```
+
+### Parent resources
+
+Nested routes produce params like `:user_id` for paths such as `/users/:user_id/articles/:id`.
+Turnstile can detect the parent resource, load it through its policy scope, discover the
+ActiveRecord association, and scope the child through it.
+
+```ruby
+class ArticlesController < ApplicationController
+  include Turnstile::Controller
+
+  # Explicit parent — loads User via :user_id, scopes
+  # articles through user.articles:
+  parent_resource User
+
+  # With a custom param key:
+  parent_resource User, id_param: :author_id
+
+  # Or auto-detect from *_id params:
+  auto_parent
+end
+```
+
+When a parent is loaded, the controller sets both `@user` and `@article` (or `@articles`).
+The parent is loaded through its own policy scope, the child through the parent's
+association. If no matching association is found, the child falls back to its own policy
+scope.
+
+Parent loading raises `ResourceNotFoundError` when the parent record is not found within
+the policy scope, ensuring users cannot probe records they are not authorized to see.
 
 ### Default action modes
 

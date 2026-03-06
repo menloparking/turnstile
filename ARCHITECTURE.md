@@ -144,8 +144,8 @@ Three components:
 ### Config (`Loading::Config`)
 
 A plain data object holding per-controller loading configuration: `resource_class`,
-`id_param`, `action_modes`, and `custom_loaders`. Inherited by duplication so child
-controllers do not pollute parents.
+`id_param`, `action_modes`, `custom_loaders`, `parent_class`, `parent_id_param`, and
+`parent_auto`. Inherited by duplication so child controllers do not pollute parents.
 
 ### DSL (`Loading::Dsl`)
 
@@ -159,6 +159,11 @@ class ArticlesController < ApplicationController
   load_plural       :search        # custom plural actions
   skip_loading      :create, :new  # no auto-loading
   load_resource(:preview) { |c| Article.find_by(slug: c.params[:slug]) }
+
+  # Parent resource (nested routes):
+  parent_resource User             # explicit parent
+  parent_resource User, id_param: :author_id  # custom param
+  auto_parent                      # detect from *_id params
 end
 ```
 
@@ -179,6 +184,23 @@ singularize, `safe_constantize`).
 
 Both singular and plural loads are filtered through the policy scope, so the user can never
 load records outside their authorized set.
+
+#### Parent resource loading
+
+When `parent_class` is set or `parent_auto` is enabled, the loader:
+
+1. **Resolves the parent** — from explicit config, or by scanning params for `*_id` keys
+   and trying `classify.safe_constantize` on each prefix.
+2. **Loads the parent** through its own policy scope (`find_by(id:)`) and raises
+   `ResourceNotFoundError` if not found.
+3. **Discovers the association** — walks `reflect_on_all_associations` on the parent class
+   to find a `has_many` or `has_one` targeting the child model.
+4. **Scopes the child** through the parent's association (e.g. `user.articles`). Falls back
+   to the child's own policy scope when no association is found.
+
+The loader returns both parent and child in the assignments hash (e.g.
+`{ :@user => <User>, :@article => <Article> }`). The controller sets all ivars;
+authorization runs on the child resource only.
 
 ## Controller Concern
 

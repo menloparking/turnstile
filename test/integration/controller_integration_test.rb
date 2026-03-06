@@ -119,6 +119,21 @@ Rails.application.routes.draw do
   get "articles/:id/present_skip",
     to: "article_present_skip#show",
     as: :article_present_skip
+
+  # Nested routes for parent resource tests.
+  resources :users, only: [] do
+    resources :articles, only: %i[index show],
+      controller: "user_articles"
+  end
+
+  # Auto-parent routes: scoped path to avoid route name
+  # collisions with the explicit parent routes above.
+  scope "/auto" do
+    resources :users, only: [] do
+      resources :articles, only: %i[index show],
+        controller: "auto_user_articles"
+    end
+  end
 end
 
 # Tiny controller for test sign-in.
@@ -849,5 +864,167 @@ class PresentationIntegrationTest <
     assert_includes response.body,
       "body:A discourse on halflings."
     assert_includes response.body, "author_id:DENIED"
+  end
+end
+
+# ==========================================================
+# Parent resource integration tests.
+# These verify that nested routes auto-load the parent and
+# scope child resources through the parent's AR association.
+# ==========================================================
+
+# Controller with explicit parent_resource declaration.
+class UserArticlesController < ApplicationController
+  include Turnstile::Controller
+
+  resource_class Article
+  parent_resource User
+  skip_authorization :index, :show
+
+  def index
+    lines = []
+    lines << "user:#{@user.name}"
+    lines << "articles:#{@articles.map(&:title).join(",")}"
+    render plain: lines.join("\n")
+  end
+
+  def show
+    lines = []
+    lines << "user:#{@user.name}"
+    lines << "article:#{@article.title}"
+    render plain: lines.join("\n")
+  end
+end
+
+# Controller with auto_parent detection.
+class AutoUserArticlesController < ApplicationController
+  include Turnstile::Controller
+
+  resource_class Article
+  auto_parent
+  skip_authorization :index, :show
+
+  def index
+    lines = []
+    lines << "user:#{@user.name}"
+    lines << "articles:#{@articles.map(&:title).join(",")}"
+    render plain: lines.join("\n")
+  end
+
+  def show
+    lines = []
+    lines << "user:#{@user.name}"
+    lines << "article:#{@article.title}"
+    render plain: lines.join("\n")
+  end
+end
+
+class ParentResourceIntegrationTest <
+  ActionDispatch::IntegrationTest
+  def setup
+    Turnstile.reset_configuration!
+
+    @admin = User.create!(name: "Gandalf", role: "admin")
+    @editor = User.create!(name: "Frodo", role: "editor")
+
+    @owned = Article.create!(
+      title: "Owned Article",
+      body: "Mine.",
+      published: true,
+      author_id: @editor.id
+    )
+    @other = Article.create!(
+      title: "Other Article",
+      body: "Not mine.",
+      published: true,
+      author_id: @admin.id
+    )
+  end
+
+  def teardown
+    Article.delete_all
+    User.delete_all
+  end
+
+  def sign_in(user)
+    post "/test_sign_in", params: {user_id: user.id}
+    assert_response :ok
+  end
+
+  # ===================================================
+  # Explicit parent_resource: index scoped by parent
+  # ===================================================
+
+  def test_nested_index_scopes_to_parent
+    sign_in(@admin)
+    get "/users/#{@editor.id}/articles"
+    assert_response :ok
+    assert_includes response.body, "user:Frodo"
+    assert_includes response.body, "Owned Article"
+    refute_includes response.body, "Other Article"
+  end
+
+  def test_nested_index_returns_empty_for_no_articles
+    user = User.create!(name: "Samwise", role: "reader")
+    sign_in(@admin)
+    get "/users/#{user.id}/articles"
+    assert_response :ok
+    assert_includes response.body, "user:Samwise"
+    assert_includes response.body, "articles:"
+    refute_includes response.body, "Owned Article"
+  end
+
+  # ===================================================
+  # Explicit parent_resource: show scoped by parent
+  # ===================================================
+
+  def test_nested_show_loads_child_through_parent
+    sign_in(@admin)
+    get "/users/#{@editor.id}/articles/#{@owned.id}"
+    assert_response :ok
+    assert_includes response.body, "user:Frodo"
+    assert_includes response.body,
+      "article:Owned Article"
+  end
+
+  def test_nested_show_rejects_child_from_wrong_parent
+    sign_in(@admin)
+    # @other belongs to @admin, not @editor.
+    get "/users/#{@editor.id}/articles/#{@other.id}"
+    assert_response :not_found
+  end
+
+  def test_nested_show_raises_for_missing_parent
+    sign_in(@admin)
+    get "/users/999999/articles/#{@owned.id}"
+    assert_response :not_found
+  end
+
+  # ===================================================
+  # auto_parent: same behaviour via param inference
+  # ===================================================
+
+  def test_auto_parent_index_scopes_to_parent
+    sign_in(@admin)
+    get "/auto/users/#{@editor.id}/articles"
+    assert_response :ok
+    assert_includes response.body, "user:Frodo"
+    assert_includes response.body, "Owned Article"
+    refute_includes response.body, "Other Article"
+  end
+
+  def test_auto_parent_show_loads_child_through_parent
+    sign_in(@admin)
+    get "/auto/users/#{@editor.id}/articles/#{@owned.id}"
+    assert_response :ok
+    assert_includes response.body, "user:Frodo"
+    assert_includes response.body,
+      "article:Owned Article"
+  end
+
+  def test_auto_parent_show_rejects_wrong_parent
+    sign_in(@admin)
+    get "/auto/users/#{@editor.id}/articles/#{@other.id}"
+    assert_response :not_found
   end
 end

@@ -18,11 +18,27 @@ module Turnstile
       # @return [Hash{Symbol => Proc}] action => custom loader
       attr_reader :custom_loaders
 
+      # --- Parent resource settings ---
+
+      # @return [Class, nil] explicit parent model class
+      attr_accessor :parent_class
+
+      # @return [Symbol, nil] param key for parent record ID
+      #   (e.g. :user_id). Inferred from parent_class if nil.
+      attr_accessor :parent_id_param
+
+      # @return [Boolean] when true, infer parent from *_id
+      #   params even without an explicit parent_class.
+      attr_accessor :parent_auto
+
       def initialize
         @resource_class = nil
         @id_param = nil
         @action_modes = {}
         @custom_loaders = {}
+        @parent_class = nil
+        @parent_id_param = nil
+        @parent_auto = false
       end
 
       # Deep-copy for inheritance: subclass controllers get

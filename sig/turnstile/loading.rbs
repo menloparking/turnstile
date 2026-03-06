@@ -6,6 +6,11 @@ module Turnstile
       attr_reader action_modes: Hash[Symbol, Symbol]
       attr_reader custom_loaders: Hash[Symbol, Proc]
 
+      # Parent resource settings
+      attr_accessor parent_class: Class?
+      attr_accessor parent_id_param: Symbol?
+      attr_accessor parent_auto: bool
+
       def initialize: -> void
       def dup: -> Config
     end
@@ -13,12 +18,14 @@ module Turnstile
     module Dsl
       module ClassMethods
         def turnstile_config: -> Config
-        def resource_class: (Class) -> void
-        def resource_id_param: (Symbol | String) -> void
+        def auto_parent: -> void
         def load_singular: (*Symbol) -> void
         def load_plural: (*Symbol) -> void
-        def skip_loading: (*Symbol) -> void
         def load_resource: (Symbol) { (untyped) -> untyped } -> void
+        def parent_resource: (Class, ?id_param: Symbol?) -> void
+        def resource_class: (Class) -> void
+        def resource_id_param: (Symbol | String) -> void
+        def skip_loading: (*Symbol) -> void
       end
     end
 
@@ -40,6 +47,26 @@ module Turnstile
       ) -> void
 
       def load: -> Hash[Symbol, untyped]
+
+      private
+
+      def config: -> Config
+      def load_parent: -> untyped?
+      def resolve_parent: -> [Class?, Symbol?]
+      def detect_parent_from_params: -> [Class?, Symbol?]
+      def parent_child_scope: (untyped) -> untyped?
+      def find_association: (Class, Class) -> untyped?
+      def resource_class: -> Class?
+      def infer_resource_class: -> Class?
+      def id_param: -> Symbol
+      def singular_name: -> String?
+      def plural_name: -> String?
+      def skip_action?: -> bool
+      def plural_action?: -> bool
+      def singular_action?: -> bool
+      def load_collection: (?base_scope: untyped?) -> Hash[Symbol, untyped]
+      def load_singular: (?base_scope: untyped?) -> Hash[Symbol, untyped]
+      def apply_policy_scope: (Class) -> untyped
     end
   end
 end

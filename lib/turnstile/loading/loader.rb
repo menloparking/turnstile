@@ -7,6 +7,11 @@ module Turnstile
     # determines whether to load a singular record or a
     # collection, and sets the appropriate instance variable.
     #
+    # When a parent resource is configured (or auto-detected
+    # from *_id params), loads the parent first, discovers the
+    # ActiveRecord association linking parent to child, and
+    # scopes the child through that association.
+    #
     # The Loader does not act on its own — it is invoked by the
     # Controller concern's before_action hook, and respects the
     # DSL configuration set on the controller class.
@@ -44,6 +49,9 @@ module Turnstile
       # assignments: { :@article => <record>, ... } or
       # { :@articles => <collection> }.
       #
+      # When a parent is detected, the hash includes both the
+      # parent (e.g. :@user) and the child.
+      #
       # Returns an empty hash if the action is configured to
       # skip loading.
       #
@@ -51,13 +59,29 @@ module Turnstile
       def load
         return {} if skip_action?
 
-        if plural_action?
-          load_collection
-        elsif singular_action?
-          load_singular
-        else
-          {}
+        assignments = {}
+
+        # Attempt parent loading when configured or when
+        # auto-detection is enabled.
+        parent = load_parent
+        if parent
+          name = parent.class.model_name.singular
+          assignments[:"@#{name}"] = parent
         end
+
+        child_scope = parent ? parent_child_scope(parent) : nil
+
+        if plural_action?
+          assignments.merge!(
+            load_collection(base_scope: child_scope)
+          )
+        elsif singular_action?
+          assignments.merge!(
+            load_singular(base_scope: child_scope)
+          )
+        end
+
+        assignments
       end
 
       private
@@ -65,6 +89,92 @@ module Turnstile
       def config
         controller_class.turnstile_config
       end
+
+      # --- Parent resource detection and loading ---
+
+      # Detect and load the parent resource, returning the
+      # AR record or nil when no parent applies.
+      def load_parent
+        parent_klass, param_key = resolve_parent
+        return nil unless parent_klass && params[param_key]
+
+        scope = apply_policy_scope(parent_klass)
+        record = scope.find_by(id: params[param_key])
+        unless record
+          raise ResourceNotFoundError.new(
+            parent_klass, params[param_key]
+          )
+        end
+        record
+      end
+
+      # Resolve parent class and param key from explicit
+      # config or auto-detection.
+      #
+      # @return [Array(Class, Symbol), Array(nil, nil)]
+      def resolve_parent
+        if config.parent_class
+          klass = config.parent_class
+          param = config.parent_id_param ||
+            :"#{klass.model_name.singular}_id"
+          [klass, param]
+        elsif config.parent_auto
+          detect_parent_from_params
+        else
+          [nil, nil]
+        end
+      end
+
+      # Scan params for keys matching *_id (excluding :id
+      # itself) and try to constantize the prefix as a model.
+      #
+      # @return [Array(Class, Symbol), Array(nil, nil)]
+      def detect_parent_from_params
+        params.each_key do |key|
+          key = key.to_s
+          next unless key.end_with?("_id") && key != "id"
+
+          model_name = key.sub(/_id\z/, "").classify
+          klass = model_name.safe_constantize
+          next unless klass &&
+            klass < ActiveRecord::Base
+
+          return [klass, key.to_sym]
+        end
+        [nil, nil]
+      end
+
+      # Discover the association on the parent that points to
+      # the child model and return the scoped relation.
+      # Falls back to a policy-scoped query on the child class
+      # when no association is found.
+      def parent_child_scope(parent)
+        child_klass = resource_class
+        return nil unless child_klass
+
+        assoc = find_association(parent.class, child_klass)
+        if assoc
+          parent.public_send(assoc.name)
+        else
+          apply_policy_scope(child_klass)
+        end
+      end
+
+      # Walk the parent's reflections to find a has_many or
+      # has_one that targets the child model.
+      #
+      # @return [ActiveRecord::Reflection, nil]
+      def find_association(parent_klass, child_klass)
+        parent_klass.reflect_on_all_associations.detect do |r|
+          r.klass == child_klass
+        rescue NameError
+          # The association's class_name may not resolve
+          # (e.g. polymorphic). Skip it.
+          false
+        end
+      end
+
+      # --- Child resource inference ---
 
       def resource_class
         config.resource_class || infer_resource_class
@@ -122,23 +232,24 @@ module Turnstile
       end
 
       # Load a collection, applying the policy scope to filter
-      # records the user may access.
-      def load_collection
+      # records the user may access. When a parent-scoped
+      # base is provided, builds on top of it.
+      def load_collection(base_scope: nil)
         klass = resource_class
         return {} unless klass
 
-        scope = apply_policy_scope(klass)
+        scope = base_scope || apply_policy_scope(klass)
         {"@#{plural_name}": scope}
       end
 
       # Load a single record, scoped through the policy scope
-      # so that a user cannot even discover records outside
-      # their access.
-      def load_singular
+      # (or a parent association) so that a user cannot even
+      # discover records outside their access.
+      def load_singular(base_scope: nil)
         klass = resource_class
         return {} unless klass
 
-        scope = apply_policy_scope(klass)
+        scope = base_scope || apply_policy_scope(klass)
         record_id = params[id_param]
 
         record = scope.find_by(id: record_id)

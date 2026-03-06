@@ -28,6 +28,23 @@ module Turnstile
     #     end
     #   end
     #
+    # == Parent resources
+    #
+    # Nested routes produce params like :user_id. Turnstile
+    # can auto-detect parent resources and scope the child
+    # through the parent's ActiveRecord association.
+    #
+    #   class ArticlesController < ApplicationController
+    #     include Turnstile::Controller
+    #
+    #     # Auto-detect parent from *_id params:
+    #     auto_parent
+    #
+    #     # Or explicit parent class:
+    #     parent_resource User
+    #     parent_resource User, id_param: :author_id
+    #   end
+    #
     module Dsl
       def self.included(base)
         base.extend(ClassMethods)
@@ -48,14 +65,12 @@ module Turnstile
           end
         end
 
-        # Set the model class explicitly.
-        def resource_class(klass)
-          turnstile_config.resource_class = klass
-        end
-
-        # Set the param key used to find a singular record.
-        def resource_id_param(param_name)
-          turnstile_config.id_param = param_name.to_sym
+        # Enable automatic parent detection from *_id params.
+        # When a param like :project_id is present, the loader
+        # infers the parent class and scopes the child through
+        # the parent's association.
+        def auto_parent
+          turnstile_config.parent_auto = true
         end
 
         # Declare actions that load a singular record.
@@ -72,17 +87,39 @@ module Turnstile
           end
         end
 
+        # Register a fully custom loader block for an action.
+        # The block receives the controller instance.
+        def load_resource(action, &block)
+          turnstile_config.custom_loaders[action.to_sym] = block
+        end
+
+        # Set explicit parent resource class and optional
+        # id_param override.
+        #
+        #   parent_resource User
+        #   parent_resource User, id_param: :author_id
+        #
+        def parent_resource(klass, id_param: nil)
+          turnstile_config.parent_class = klass
+          turnstile_config.parent_id_param =
+            id_param&.to_sym
+        end
+
+        # Set the model class explicitly.
+        def resource_class(klass)
+          turnstile_config.resource_class = klass
+        end
+
+        # Set the param key used to find a singular record.
+        def resource_id_param(param_name)
+          turnstile_config.id_param = param_name.to_sym
+        end
+
         # Declare actions that should not auto-load anything.
         def skip_loading(*actions)
           actions.each do |a|
             turnstile_config.action_modes[a.to_sym] = :skip
           end
-        end
-
-        # Register a fully custom loader block for an action.
-        # The block receives the controller instance.
-        def load_resource(action, &block)
-          turnstile_config.custom_loaders[action.to_sym] = block
         end
       end
     end
