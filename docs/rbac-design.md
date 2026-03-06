@@ -1924,6 +1924,274 @@ structured event with no block — ideal for the write path where the event is a
 operation that has already completed. Using both keeps instrumentation idiomatic and avoids
 shoe-horning domain events into a timing API.
 
+## Query Budget Enforcement
+
+The design invariant "every permission check maps to a single SQL expression" is enforced by
+convention in code review. Query budget enforcement makes it a runtime invariant: wrap a
+permission check, count the SQL queries fired during evaluation, and warn or raise if the count
+exceeds a configurable threshold.
+
+### Motivation
+
+A `can?` call that fires one `EXISTS` subquery is fast and predictable. A `can?` call that
+fires five queries — loading the role, loading abilities, checking each roleable level
+separately — is an N+1 bug hiding inside an authorization check. In a controller that
+authorizes a collection of 25 records, that is 125 queries instead of 25.
+
+Query budget enforcement catches this during development and test, before it reaches production.
+
+### Configuration
+
+```ruby
+# config/initializers/turnstile.rb
+Turnstile.configure do |config|
+  # :off   — no monitoring (production default)
+  # :warn  — log a warning when budget is exceeded
+  # :raise — raise QueryBudgetExceeded (dev/test default)
+  config.rbac_query_budget_mode = Rails.env.production? ?
+    :off : :raise
+
+  # Maximum SQL queries allowed per permission check.
+  # Default: 1. Hierarchical policies that compose
+  # multiple roleable levels may need 2 or 3.
+  config.rbac_query_budget = 1
+end
+```
+
+### Implementation
+
+```ruby
+module Turnstile
+  module Rbac
+    module QueryBudget
+      class Exceeded < StandardError
+        attr_reader :method_name, :query_count, :budget,
+          :queries
+
+        def initialize(method_name, query_count, budget,
+          queries)
+          @method_name = method_name
+          @query_count = query_count
+          @budget = budget
+          @queries = queries
+          super(
+            "#{method_name} executed #{query_count} " \
+            "#{query_count == 1 ? "query" : "queries"} " \
+            "(budget: #{budget})\n" +
+            queries.map.with_index(1) { |q, i|
+              "  #{i}. #{q}"
+            }.join("\n")
+          )
+        end
+      end
+
+      class Counter
+        attr_reader :queries
+
+        def initialize
+          @queries = []
+        end
+
+        def track
+          subscriber = ActiveSupport::Notifications
+            .subscribe("sql.active_record") do |event|
+            payload = event.payload
+            next if payload[:name] == "SCHEMA"
+            next if payload[:name] == "EXPLAIN"
+            next if payload[:cached]
+            @queries << payload[:sql]
+          end
+
+          yield
+        ensure
+          ActiveSupport::Notifications
+            .unsubscribe(subscriber)
+        end
+
+        def count
+          queries.size
+        end
+      end
+
+      def self.enforce(method_name, mode:, budget:)
+        return yield if mode == :off
+
+        counter = Counter.new
+        result = counter.track { yield }
+
+        if counter.count > budget
+          case mode
+          when :warn
+            Turnstile.logger&.warn(
+              "[Turnstile RBAC] Query budget exceeded: " \
+              "#{method_name} executed " \
+              "#{counter.count} queries " \
+              "(budget: #{budget})"
+            )
+            counter.queries.each_with_index do |q, i|
+              Turnstile.logger&.warn(
+                "  #{i + 1}. #{q}"
+              )
+            end
+          when :raise
+            raise Exceeded.new(
+              method_name, counter.count,
+              budget, counter.queries
+            )
+          end
+        end
+
+        result
+      end
+    end
+  end
+end
+```
+
+### Integration with RoleBearer
+
+The query budget wraps the existing `can?`, `has_role?`, and `memberships` methods. When
+budget mode is `:off` the overhead is zero — the `return yield` short-circuit avoids
+subscribing to notifications entirely.
+
+```ruby
+# app/models/concerns/role_bearer.rb
+module RoleBearer
+  extend ActiveSupport::Concern
+
+  def can?(ability, roleable, at: Time.current)
+    QueryBudget.enforce("can?",
+      mode: Turnstile.config.rbac_query_budget_mode,
+      budget: Turnstile.config.rbac_query_budget
+    ) do
+      ability_s = ability.to_s
+      role_granted?(ability_s, roleable, at:)
+    end
+  end
+
+  def has_role?(role_name, roleable, at: Time.current)
+    QueryBudget.enforce("has_role?",
+      mode: Turnstile.config.rbac_query_budget_mode,
+      budget: Turnstile.config.rbac_query_budget
+    ) do
+      role_assignments_for(roleable, at:)
+        .joins(:role)
+        .where(roles: {name: role_name})
+        .exists?
+    end
+  end
+
+  def memberships(roleable, at: Time.current)
+    QueryBudget.enforce("memberships",
+      mode: Turnstile.config.rbac_query_budget_mode,
+      budget: Turnstile.config.rbac_query_budget
+    ) do
+      role_assignments_for(roleable, at:)
+    end
+  end
+end
+```
+
+### Integration with Policy::Scope
+
+Scope resolution can also be budget-monitored. A scope that fires multiple queries to build
+its `WHERE` clause has the same N+1 risk.
+
+```ruby
+# Inside a Turnstile RBAC-aware policy scope
+class Scope < Turnstile::Authorization::Policy::Scope
+  def resolve
+    QueryBudget.enforce("#{self.class.name}#resolve",
+      mode: Turnstile.config.rbac_query_budget_mode,
+      budget: Turnstile.config.rbac_query_budget
+    ) do
+      scope.where(
+        id: RoleAssignment.active(at: at)
+          .for_roleable_type(scope.klass.name)
+          .joins(role: :role_abilities)
+          .where(role_abilities: {ability: ability})
+          .select(:roleable_id)
+      )
+    end
+  end
+end
+```
+
+Note: scope `resolve` returns a relation, which is lazy. The query counter counts queries
+fired during `resolve` itself — typically zero or one. The actual SQL execution happens later
+when the relation is materialized. If the scope builds eagerly (calling `pluck`, `to_a`, or
+`exists?` inside `resolve`), those queries are counted.
+
+### Per-call budget override
+
+Hierarchical policies that intentionally check multiple roleable levels need a higher budget.
+A per-call override avoids raising the global threshold:
+
+```ruby
+def can?(ability, roleable, at: Time.current)
+  QueryBudget.enforce("can?",
+    mode: Turnstile.config.rbac_query_budget_mode,
+    budget: 3  # article + project + organization
+  ) do
+    ability_s = ability.to_s
+    role_granted?(ability_s, roleable, at:) ||
+      role_granted?(ability_s, roleable.project, at:) ||
+      role_granted?(ability_s,
+        roleable.project.organization, at:)
+  end
+end
+```
+
+### Test helper
+
+A test helper makes it easy to assert query budgets in the test suite:
+
+```ruby
+# test/support/query_budget_helper.rb
+module QueryBudgetHelper
+  def assert_within_query_budget(budget = 1,
+    method_name = "block", &block)
+    counter = Turnstile::Rbac::QueryBudget::Counter.new
+    result = counter.track(&block)
+    assert counter.count <= budget,
+      "Expected at most #{budget} " \
+      "#{budget == 1 ? "query" : "queries"} " \
+      "for #{method_name}, got #{counter.count}:\n" +
+      counter.queries.map.with_index(1) { |q, i|
+        "  #{i}. #{q}"
+      }.join("\n")
+    result
+  end
+end
+```
+
+```ruby
+# test/models/user_can_test.rb
+class UserCanTest < ActiveSupport::TestCase
+  include QueryBudgetHelper
+
+  test "can? fires exactly one query" do
+    assert_within_query_budget(1, "can?") do
+      user.can?(Abilities::VIEW, article)
+    end
+  end
+
+  test "hierarchical can? fires at most 3 queries" do
+    assert_within_query_budget(3, "hierarchical can?") do
+      user.can?(Abilities::VIEW, article)
+    end
+  end
+end
+```
+
+### Mode summary
+
+| Mode    | Exceeded budget behavior  | Overhead          | Default in       |
+| ------- | ------------------------- | ----------------- | ---------------- |
+| `:off`  | Nothing                   | Zero              | Production       |
+| `:warn` | Log warning + query list  | Notification sub  | —                |
+| `:raise`| Raise `QueryBudgetExceeded` | Notification sub | Development/Test |
+
 ## Migration Plan
 
 ### Step 1: Generate tables
