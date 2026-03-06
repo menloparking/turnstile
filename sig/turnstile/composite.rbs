@@ -1,0 +1,64 @@
+module Turnstile
+  module Composite
+    module RequestOperators
+      def &: (Class) -> Class
+      def |: (Class) -> Class
+      def ~: -> Class
+    end
+
+    module Request
+      class AllOf < RequestPolicy::Base
+        def self.policies: -> Array[Class]
+        def self.build: (*Class) -> Class
+        def call: -> Authorization::Result
+      end
+
+      class AnyOf < RequestPolicy::Base
+        def self.policies: -> Array[Class]
+        def self.build: (*Class) -> Class
+        def call: -> Authorization::Result
+      end
+
+      class NoneOf < RequestPolicy::Base
+        def self.policies: -> Array[Class]
+        def self.build: (*Class) -> Class
+        def call: -> Authorization::Result
+      end
+    end
+
+    module PolicyOperators
+      def &: (Class) -> Class
+      def |: (Class) -> Class
+      def ~: -> Class
+    end
+
+    module General
+      class AllOf < Authorization::Policy
+        def self.policies: -> Array[Class]
+        def self.build: (*Class) -> Class
+
+        private
+
+        def evaluate_all: (Symbol) -> Authorization::Result
+      end
+
+      class AnyOf < Authorization::Policy
+        def self.policies: -> Array[Class]
+        def self.build: (*Class) -> Class
+
+        private
+
+        def evaluate_any: (Symbol) -> Authorization::Result
+      end
+
+      class NoneOf < Authorization::Policy
+        def self.policies: -> Array[Class]
+        def self.build: (*Class) -> Class
+
+        private
+
+        def evaluate_none: (Symbol) -> Authorization::Result
+      end
+    end
+  end
+end

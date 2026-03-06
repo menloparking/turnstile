@@ -6,4 +6,12 @@ module Turnstile
   def self.logger: -> Logger
   def self.logger=: (Logger) -> Logger
   def self.reset_configuration!: -> Configuration
+
+  def self.all_of: (*Class) -> Class
+  def self.any_of: (*Class) -> Class
+  def self.none_of: (*Class) -> Class
+
+  private
+
+  def self.request_policies?: (Array[Class]) -> bool
 end

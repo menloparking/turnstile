@@ -103,6 +103,55 @@ end
 DenyAll applies: if no `_allowed?` method exists for an attribute, the decorator denies
 access by default.
 
+### Composite Policies (boolean composition)
+
+Policies can be combined with boolean logic through the `Turnstile::Composite` module.
+Three combinators exist: `AllOf` (AND), `AnyOf` (OR), and `NoneOf` (NOT). Each combinator
+has both a request-policy variant (Tier 0) and a general-policy variant (Tier 1).
+
+**Key design decision:** `build(*policy_classes)` returns an **anonymous class**
+(`Class.new(self)`) with a frozen `@policies` array, not an instance. This means a
+composite can be used anywhere a policy **class** is expected — as `c.request_policy`,
+or as the argument to `authorize`.
+
+#### Request composites (`Composite::Request`)
+
+Subclass `RequestPolicy::Base`. Override `call` to iterate over child policy classes,
+instantiating each with the same `request` and combining results:
+
+| Combinator | Logic                            | Short-circuit      |
+| ---------- | -------------------------------- | ------------------ |
+| `AllOf`    | All must allow                   | First denial       |
+| `AnyOf`    | At least one must allow          | First allow        |
+| `NoneOf`   | All must deny (inverts meaning)  | First allow→deny   |
+
+#### General composites (`Composite::General`)
+
+Subclass `Authorization::Policy`. Permission queries (`?` methods) are intercepted by
+`method_missing`, which instantiates each child policy with `(user, record)` and dispatches
+the same query:
+
+| Combinator | Logic                            | Short-circuit      |
+| ---------- | -------------------------------- | ------------------ |
+| `AllOf`    | All must allow                   | First denial       |
+| `AnyOf`    | At least one must allow          | First allow        |
+| `NoneOf`   | All must deny (inverts meaning)  | First allow→deny   |
+
+#### Three access forms
+
+1. **Module helpers:** `Turnstile.all_of(A, B)`, `.any_of(A, B)`, `.none_of(A)`. The helpers
+   auto-detect the tier: when all arguments descend from `RequestPolicy::Base`, a request
+   composite is built; otherwise a general composite.
+2. **Operator syntax:** `A & B`, `A | B`, `~A`. Wired via `extend` on the base classes at
+   the bottom of `composite.rb`.
+3. **Nesting:** Composites are classes, so they can be passed as arguments to other
+   composites: `Turnstile.all_of(A, Turnstile.any_of(B, C))`.
+
+#### Load order dependency
+
+`composite.rb` must be required after both `authorization.rb` and `request_policy.rb`
+because it subclasses their base classes and extends them with operator modules.
+
 ### Presented Decorator
 
 `Turnstile::Presented` wraps an ActiveRecord record and its resolved general policy. Column
@@ -311,6 +360,7 @@ lib/
       base.rb                           # DenyAll Rack-level policy
       permit_all.rb                     # PermitAll Rack-level policy
       middleware.rb                     # Rack middleware
+    composite.rb                        # boolean composition (all_of, any_of, none_of)
     loading.rb                          # barrel require
     loading/
       config.rb                         # per-controller config data
@@ -321,9 +371,13 @@ lib/
     presented_collection.rb             # collection wrapper
     railtie.rb                          # Rails integration
 sig/                                    # RBS type signatures
+  turnstile.rbs                         # top-level module
+  turnstile/
+    composite.rbs                       # composite policy types
 test/
   test_helper.rb                        # shared setup, models, policies
   turnstile/                            # unit tests
+    composite/                          # composite policy tests
   integration/                          # full-stack Rails integration tests
   dummy/                                # minimal Rails app for integration
 ```

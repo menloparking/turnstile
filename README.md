@@ -214,6 +214,88 @@ configured, the middleware acts as a pass-through — no overhead.
 `Turnstile::RequestPolicy::PermitAll` is available as a convenience base class that allows
 everything, useful during development or when you want deny-by-exception.
 
+## Composite policies
+
+Combine policies with boolean logic using `all_of` (AND), `any_of` (OR), and `none_of` (NOT).
+Composites work for both request policies and general policies.
+
+### Module helpers
+
+```ruby
+# All must allow (AND):
+Turnstile.all_of(MaintenancePolicy, IpAllowlistPolicy)
+
+# At least one must allow (OR):
+Turnstile.any_of(VpnPolicy, InternalNetworkPolicy)
+
+# All must deny for the composite to allow (NOT):
+Turnstile.none_of(BlockedIpPolicy)
+```
+
+### Operator syntax
+
+```ruby
+MaintenancePolicy & IpAllowlistPolicy       # same as all_of
+VpnPolicy | InternalNetworkPolicy            # same as any_of
+~BlockedIpPolicy                             # same as none_of
+```
+
+### Nesting
+
+Composites nest freely — mix helpers and operators:
+
+```ruby
+# Require maintenance check AND (VPN or internal network):
+Turnstile.all_of(
+  MaintenancePolicy,
+  Turnstile.any_of(VpnPolicy, InternalNetworkPolicy)
+)
+
+# Equivalent with operators:
+MaintenancePolicy & (VpnPolicy | InternalNetworkPolicy)
+```
+
+### Auto-detection
+
+The module helpers automatically detect the policy tier. When all arguments descend from
+`RequestPolicy::Base`, a request composite is built; otherwise a general composite is built.
+
+```ruby
+# Request composite (all args are request policies):
+Turnstile.all_of(MaintenancePolicy, IpAllowlistPolicy)
+
+# General composite (authorization policies):
+Turnstile.all_of(AdminPolicy, OwnerPolicy)
+```
+
+### Using a request composite
+
+Assign to `request_policy` like any single request policy:
+
+```ruby
+Turnstile.configure do |c|
+  c.request_policy = MaintenancePolicy & IpAllowlistPolicy
+end
+```
+
+### Using a general composite
+
+Composites are policy classes, so they work anywhere a policy class is expected:
+
+```ruby
+CompositePolicy = AdminPolicy | OwnerPolicy
+
+policy = CompositePolicy.new(user, record)
+result = policy.update?
+result.allowed? # => true if either policy allows
+```
+
+### Short-circuit evaluation
+
+- `all_of` stops on the first denial.
+- `any_of` stops on the first allow.
+- `none_of` stops on the first allow (and denies).
+
 ## Policy tiers
 
 ### General policies (Policy)
