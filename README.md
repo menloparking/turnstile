@@ -157,6 +157,63 @@ Turnstile.configure do |c|
 end
 ```
 
+## Request policies (Rack-level)
+
+Request policies operate at the Rack level, before Rails processes the request. They receive
+only a `Rack::Request` — no user, no record, no session. Typical uses include IP allowlists,
+maintenance mode gates, and rate limits.
+
+The base class denies all by default. Subclass it and override `call`:
+
+```ruby
+class MaintenancePolicy < Turnstile::RequestPolicy::Base
+  def call
+    if ENV["MAINTENANCE_MODE"] == "1"
+      deny(reason: "down for maintenance")
+    else
+      allow
+    end
+  end
+end
+```
+
+```ruby
+require "ipaddr"
+
+class IpAllowlistPolicy < Turnstile::RequestPolicy::Base
+  ALLOWED = IPAddr.new("10.0.0.0/8")
+
+  def call
+    if ALLOWED.include?(IPAddr.new(request.ip))
+      allow
+    else
+      deny(reason: "IP #{request.ip} not in allowlist")
+    end
+  end
+end
+```
+
+Configure the policy and optional response settings in your initializer:
+
+```ruby
+Turnstile.configure do |c|
+  c.request_policy = MaintenancePolicy
+
+  # HTTP status for denied requests (default: 403):
+  c.request_policy_status = 503
+
+  # Static body or a callable receiving the Result:
+  c.request_policy_body = "Be back soon"
+  c.request_policy_body = ->(result) { result.reason }
+end
+```
+
+The Railtie inserts the middleware at position 0 automatically. When no `request_policy` is
+configured, the middleware acts as a pass-through — no overhead.
+
+`Turnstile::RequestPolicy::PermitAll` is available as a convenience base class that allows
+everything, useful during development or when you want deny-by-exception.
+
 ## Policy tiers
 
 ### General policies (Policy)
