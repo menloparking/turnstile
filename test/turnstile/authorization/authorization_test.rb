@@ -383,5 +383,234 @@ module Turnstile
         assert r.frozen?
       end
     end
+
+    # --- MustImplement ---
+
+    class MustImplementTest < Minitest::Test
+      include TurnstileTestSetup
+
+      # A bare MustImplement subclass — nothing overridden.
+      class BarePolicy < MustImplement; end
+
+      # A subclass with a custom permission, nothing overridden.
+      class CustomPermPolicy < MustImplement
+        permission :approve,
+          description: "approve a record"
+      end
+
+      # A partially overridden subclass. show? is
+      # implemented; create? and approve? are not.
+      class PartialPolicy < MustImplement
+        permission :approve,
+          description: "approve a record"
+
+        def show? = allow
+
+        class Scope < MustImplement::Scope
+          def resolve = scope.all
+        end
+      end
+
+      def setup
+        super
+        @user = User.create!(name: "Gandalf", role: "admin")
+        @article = Article.create!(
+          title: "Concerning Hobbits",
+          body: "Hobbits are an unobtrusive folk",
+          published: true,
+          author_id: @user.id
+        )
+      end
+
+      def teardown
+        Article.delete_all
+        User.delete_all
+      end
+
+      # -- Unoverridden CRUD permissions raise --
+
+      def test_bare_create_raises
+        policy = BarePolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.create?
+        end
+      end
+
+      def test_bare_show_raises
+        policy = BarePolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.show?
+        end
+      end
+
+      def test_bare_index_raises
+        policy = BarePolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.index?
+        end
+      end
+
+      def test_bare_update_raises
+        policy = BarePolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.update?
+        end
+      end
+
+      def test_bare_destroy_raises
+        policy = BarePolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.destroy?
+        end
+      end
+
+      # -- Unoverridden custom permissions raise --
+
+      def test_custom_permission_raises
+        policy = CustomPermPolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.approve?
+        end
+      end
+
+      # -- Overridden permissions work normally --
+
+      def test_overridden_permission_returns_result
+        policy = PartialPolicy.new(@user, @article)
+        result = policy.show?
+        assert result.allowed?
+      end
+
+      # -- Partial override: overridden works, rest raises --
+
+      def test_partial_unoverridden_crud_raises
+        policy = PartialPolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.create?
+        end
+      end
+
+      def test_partial_unoverridden_custom_raises
+        policy = PartialPolicy.new(@user, @article)
+        assert_raises(MustImplement::NotImplementedError) do
+          policy.approve?
+        end
+      end
+
+      # -- Scope --
+
+      def test_bare_scope_raises
+        scope = MustImplement::Scope.new(@user, Article)
+        assert_raises(MustImplement::NotImplementedError) do
+          scope.resolve
+        end
+      end
+
+      def test_bare_subclass_scope_raises
+        scope = BarePolicy::Scope.new(@user, Article)
+        assert_raises(MustImplement::NotImplementedError) do
+          scope.resolve
+        end
+      end
+
+      def test_overridden_scope_works
+        scope = PartialPolicy::Scope.new(@user, Article)
+        assert_equal Article.count, scope.resolve.count
+      end
+
+      # -- Error class hierarchy --
+
+      def test_error_is_a_ruby_not_implemented_error
+        err = MustImplement::NotImplementedError.new(
+          BarePolicy, :create
+        )
+        assert_kind_of ::NotImplementedError, err
+      end
+
+      def test_error_is_not_a_turnstile_error
+        err = MustImplement::NotImplementedError.new(
+          BarePolicy, :create
+        )
+        refute_kind_of Turnstile::Error, err
+      end
+
+      # -- Error message content --
+
+      def test_error_message_includes_policy_class
+        policy = BarePolicy.new(@user, @article)
+        err = assert_raises(
+          MustImplement::NotImplementedError
+        ) { policy.create? }
+        assert_includes err.message, "BarePolicy"
+      end
+
+      def test_error_message_includes_permission
+        policy = BarePolicy.new(@user, @article)
+        err = assert_raises(
+          MustImplement::NotImplementedError
+        ) { policy.create? }
+        assert_includes err.message, "create?"
+      end
+
+      def test_error_message_includes_must_be_overridden
+        policy = BarePolicy.new(@user, @article)
+        err = assert_raises(
+          MustImplement::NotImplementedError
+        ) { policy.create? }
+        assert_includes err.message, "must be overridden"
+      end
+
+      def test_scope_error_message_includes_resolve
+        scope = MustImplement::Scope.new(@user, Article)
+        err = assert_raises(
+          MustImplement::NotImplementedError
+        ) { scope.resolve }
+        assert_includes err.message, "resolve?"
+      end
+
+      # -- respond_to? --
+
+      def test_responds_to_registered_permissions
+        policy = BarePolicy.new(@user, @article)
+        %i[create? destroy? index? show? update?].each do |m|
+          assert policy.respond_to?(m),
+            "expected respond_to?(#{m}) to be true"
+        end
+      end
+
+      def test_responds_to_custom_permission
+        policy = CustomPermPolicy.new(@user, @article)
+        assert policy.respond_to?(:approve?)
+      end
+
+      # -- Non-permission methods raise NoMethodError --
+
+      def test_non_permission_method_raises_no_method_error
+        policy = BarePolicy.new(@user, @article)
+        assert_raises(NoMethodError) { policy.frobnicate? }
+      end
+
+      def test_non_query_method_raises_no_method_error
+        policy = BarePolicy.new(@user, @article)
+        assert_raises(NoMethodError) { policy.explode }
+      end
+
+      # -- Inherits CRUD from Policy --
+
+      def test_inherits_standard_crud_permissions
+        names = BarePolicy.permission_names
+        %i[create destroy index show update].each do |p|
+          assert_includes names, p,
+            "BarePolicy should inherit #{p}"
+        end
+      end
+
+      def test_custom_permissions_added_to_inherited
+        names = CustomPermPolicy.permission_names
+        assert_includes names, :approve
+        # Still has CRUD from Policy.
+        assert_includes names, :show
+      end
+    end
   end
 end
