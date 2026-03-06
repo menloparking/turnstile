@@ -40,11 +40,24 @@ module Turnstile
     #   returns nil. Defaults to :strict (DenyAll).
     attr_accessor :presented_mode
 
+    # @return [Symbol] :off, :warn, or :raise. Controls
+    #   query budget enforcement for permission checks.
+    #   :off disables monitoring (zero overhead).
+    #   :warn logs when the budget is exceeded.
+    #   :raise raises QueryBudget::Exceeded.
+    attr_accessor :query_budget_mode
+
+    # @return [Integer] maximum SQL queries allowed per
+    #   permission check. Defaults to 1.
+    attr_accessor :query_budget
+
     def initialize
       @current_user_method = :current_user
       @logger = Logging.default_logger
       @policy_namespace = nil
       @presented_mode = :strict
+      @query_budget = 1
+      @query_budget_mode = :off
       @request_policy = nil
       @request_policy_body = nil
       @request_policy_status = nil
