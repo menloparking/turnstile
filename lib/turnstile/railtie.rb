@@ -11,6 +11,10 @@ module Turnstile
   #    been configured. This ensures the gate stands before
   #    sessions, cookies, or any Rails-specific middleware.
   class Railtie < Rails::Railtie
+    rake_tasks do
+      load "turnstile/tasks/audit.rake"
+    end
+
     initializer "turnstile.configure_logger" do
       Turnstile.configure do |c|
         c.logger = Rails.logger if Rails.logger

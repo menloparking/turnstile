@@ -1,0 +1,29 @@
+module Turnstile
+  module Audit
+    class Entry
+      attr_reader controller: String
+      attr_reader action: Symbol
+      attr_reader status: Symbol
+      attr_reader reason: String
+
+      def initialize: (
+        controller: String,
+        action: Symbol,
+        status: Symbol,
+        reason: String
+      ) -> void
+
+      def to_s: -> String
+    end
+
+    def self.run: -> Array[Entry]
+    def self.report: (?io: IO) -> bool
+
+    private
+
+    def self.each_turnstile_route: { (Class, Symbol) -> void } -> void
+    def self.turnstile_controller?: (Class) -> bool
+    def self.analyze: (Class, Symbol) -> Entry
+    def self.auto_loaded?: (Class, Symbol) -> bool
+  end
+end

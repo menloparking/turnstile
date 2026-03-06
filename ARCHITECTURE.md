@@ -277,6 +277,83 @@ Public instance methods (also available as view helpers):
 - `policy_scope(scope)` — apply policy scope to a relation
 - `skip_authorization` — mark authorization as intentionally skipped
 
+### Authorization Verification
+
+The class method `verify_authorization` registers an `after_action` that raises
+`AuthorizationNotPerformedError` when an action completes without any authorization path
+having been taken. This is opt-in per controller (like Pundit's `verify_authorized`).
+
+```ruby
+class ApplicationController < ActionController::Base
+  include Turnstile::Controller
+  verify_authorization
+end
+```
+
+An action is considered "authorized" when any of the following happened during the request:
+
+- The automatic `turnstile_authorize_resource` ran (resource was auto-loaded).
+- `authorize` or `authorize_without_context` was called manually.
+- `skip_authorization` was called (instance-level opt-out).
+- The action is listed in `skip_authorization :action_name` (class-level opt-out).
+
+The check is recorded by the `@turnstile_authorization_performed` flag, which is set to
+`true` by each of the above paths. The `after_action` calls `turnstile_verify_authorized`,
+which skips actions in `turnstile_skip_auth_actions` and otherwise raises when the flag is
+unset.
+
+## Authorization Audit
+
+`Turnstile::Audit` provides **static analysis** of routes to identify controller actions
+where authorization is not structurally guaranteed. It does not prove authorization is
+missing — it flags actions that need human review.
+
+The module is **not loaded at boot**; it is lazy-required by the rake task so it adds zero
+overhead to production requests.
+
+### How it works
+
+`Audit.run` walks `Rails.application.routes`, finds every routable action on controllers
+that include `Turnstile::Controller`, and classifies each into one of two statuses:
+
+| Status        | Meaning                                                      |
+| ------------- | ------------------------------------------------------------ |
+| `:ok`         | Auto-loaded, has `skip_authorization`, or has a custom loader|
+| `:unverified` | Not auto-loaded and no skip — relies on manual `authorize`   |
+
+The analysis uses `Loading::Loader` action constants (SINGULAR_ACTIONS, PLURAL_ACTIONS,
+SKIP_ACTIONS) and each controller's `turnstile_config` to determine action modes.
+
+### Data model
+
+`Audit::Entry` is a `Data.define` value object with fields: `controller`, `action`,
+`status`, `reason`. Its `to_s` produces a fixed-width formatted line for reporting.
+
+### Rake task
+
+```
+rake turnstile:audit
+```
+
+Prints a formatted report to stdout and exits with status 1 when any actions are
+unverified. Suitable for CI pipelines:
+
+```
+Turnstile Authorization Audit
+==================================================
+
+UNVERIFIED (1):
+--------------------------------------------------
+  ArticlesController#create       unverified UNVERIFIED (no auto-load; needs manual authorize)
+
+OK (4):
+--------------------------------------------------
+  ArticlesController#index        ok         covered (auto-loaded and authorized)
+  ...
+
+5 actions, 4 covered, 1 unverified
+```
+
 ## Reflection API
 
 The `permission` macro registers `PermissionInfo` frozen value objects (name, description,
@@ -299,11 +376,12 @@ all governed permissions without instantiating a policy.
 
 ## Railtie
 
-Two initializers:
+Two initializers and a rake task loader:
 
 1. **`turnstile.configure_logger`** — sets the gem logger to `Rails.logger`.
 2. **`turnstile.request_policy_middleware`** — inserts the request policy middleware at
    position 0 (before sessions, cookies, everything).
+3. **`rake_tasks`** — loads `turnstile/tasks/audit.rake` to register `turnstile:audit`.
 
 ## Error Hierarchy
 
@@ -369,11 +447,16 @@ lib/
     controller.rb                       # ActiveSupport::Concern
     presented.rb                        # attribute-guarding decorator
     presented_collection.rb             # collection wrapper
+    audit.rb                            # static authorization coverage analysis
+    tasks/
+      audit.rake                        # turnstile:audit rake task
     railtie.rb                          # Rails integration
 sig/                                    # RBS type signatures
   turnstile.rbs                         # top-level module
   turnstile/
     composite.rbs                       # composite policy types
+    controller.rbs                      # controller concern types
+    audit.rbs                           # audit module types
 test/
   test_helper.rb                        # shared setup, models, policies
   turnstile/                            # unit tests

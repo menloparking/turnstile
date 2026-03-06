@@ -237,6 +237,16 @@ module Turnstile
       klass.model_name.plural
     end
 
+    # After-action guard registered by +verify_authorization+.
+    # Raises when no authorization path was taken.
+    def turnstile_verify_authorized
+      return if self.class.turnstile_skip_auth_actions
+        .include?(action_name.to_sym)
+      return if turnstile_authorization_performed?
+
+      raise AuthorizationNotPerformedError
+    end
+
     # Class methods for the controller.
     module ClassMethods
       # Declare actions that should skip authorization.
@@ -272,6 +282,21 @@ module Turnstile
         else
           Set.new
         end
+      end
+
+      # Enable after-action verification that authorization
+      # was performed. When active, any action that completes
+      # without calling +authorize+, +skip_authorization+, or
+      # being listed in +skip_authorization+ will raise
+      # +AuthorizationNotPerformedError+.
+      #
+      #   class ApplicationController < ActionController::Base
+      #     include Turnstile::Controller
+      #     verify_authorization
+      #   end
+      #
+      def verify_authorization
+        after_action :turnstile_verify_authorized
       end
     end
   end

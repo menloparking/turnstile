@@ -16,11 +16,16 @@ module Turnstile
     def policy_scope: (untyped scope) -> untyped
     def skip_authorization: -> void
 
+    private
+
+    def turnstile_verify_authorized: -> void
+
     module ClassMethods
       def skip_authorization: (*Symbol) -> void
       def skip_presentation: (*Symbol) -> void
       def turnstile_skip_auth_actions: -> Set[Symbol]
       def turnstile_skip_present_actions: -> Set[Symbol]
+      def verify_authorization: -> void
     end
   end
 end

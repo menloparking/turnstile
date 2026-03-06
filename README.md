@@ -475,6 +475,85 @@ class ArticlesController < ApplicationController
 end
 ```
 
+## Verifying authorization
+
+For defense-in-depth, enable `verify_authorization` to catch actions that forget to authorize.
+This registers an `after_action` that raises `AuthorizationNotPerformedError` when an action
+completes without having called `authorize`, `skip_authorization`, or being listed in
+`skip_authorization` at the class level.
+
+```ruby
+class ApplicationController < ActionController::Base
+  include Turnstile::Controller
+  verify_authorization
+end
+```
+
+Actions that auto-load resources (index, show, edit, update, destroy) are automatically
+authorized by the before_action. You only need to worry about actions that skip loading
+(e.g. `create`, `new`, or custom actions):
+
+```ruby
+class ArticlesController < ApplicationController
+  skip_loading :create
+
+  def create
+    @article = Article.new(article_params)
+    authorize(@article, :create)   # satisfies the check
+    # ...
+  end
+
+  def dashboard
+    skip_authorization             # also satisfies the check
+    # ...
+  end
+end
+```
+
+## Authorization audit
+
+The `turnstile:audit` rake task performs static analysis of your routes and controllers,
+reporting which actions are structurally covered by authorization and which require manual
+review:
+
+```
+$ rake turnstile:audit
+
+Turnstile Authorization Audit
+==================================================
+
+UNVERIFIED (1):
+--------------------------------------------------
+  ArticlesController#create          unverified UNVERIFIED (no auto-load; needs manual authorize)
+
+OK (6):
+--------------------------------------------------
+  ArticlesController#destroy         ok covered (auto-loaded and authorized)
+  ArticlesController#index           ok covered (auto-loaded and authorized)
+  ArticlesController#publish         ok covered (auto-loaded and authorized)
+  ArticlesController#search          ok covered (auto-loaded and authorized)
+  ArticlesController#show            ok covered (auto-loaded and authorized)
+  ArticlesController#update          ok covered (auto-loaded and authorized)
+
+7 actions, 6 covered, 1 unverified
+```
+
+The task exits with status 1 when unverified actions exist, making it suitable for CI
+pipelines. Unverified does not mean unauthorized — it means the action relies on a manual
+`authorize` call rather than structural guarantees. Use `verify_authorization` in the
+controller to enforce the manual call at runtime.
+
+Programmatic access:
+
+```ruby
+require "turnstile/audit"
+
+entries = Turnstile::Audit.run           # Array of Entry objects
+entries.each { |e| puts e }
+
+success = Turnstile::Audit.report       # prints report, returns boolean
+```
+
 ## Result objects
 
 Every permission query returns a `Turnstile::Authorization::Result`:
