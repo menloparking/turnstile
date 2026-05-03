@@ -11,6 +11,7 @@ require_relative "turnstile/composite"
 require_relative "turnstile/loading"
 require_relative "turnstile/presented"
 require_relative "turnstile/presented_collection"
+require_relative "turnstile/api_controller"
 require_relative "turnstile/controller"
 require_relative "turnstile/railtie" if defined?(Rails::Railtie)
 

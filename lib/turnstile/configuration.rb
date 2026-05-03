@@ -40,6 +40,14 @@ module Turnstile
     #   returns nil. Defaults to :strict (DenyAll).
     attr_accessor :presented_mode
 
+    # @return [Symbol, nil] the controller method called as a
+    #   before_action by Turnstile::ApiController to authenticate
+    #   Bearer token requests. The method is responsible for
+    #   setting the current user ivar and halting the filter
+    #   chain on failure. nil means no hook is registered
+    #   automatically (you wire your own before_action).
+    attr_accessor :bearer_token_method
+
     # @return [Symbol] :off, :warn, or :raise. Controls
     #   query budget enforcement for permission checks.
     #   :off disables monitoring (zero overhead).
@@ -52,6 +60,7 @@ module Turnstile
     attr_accessor :query_budget
 
     def initialize
+      @bearer_token_method = nil
       @current_user_method = :current_user
       @logger = Logging.default_logger
       @policy_namespace = nil
