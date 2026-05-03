@@ -367,6 +367,14 @@ class AuditTest < ActionDispatch::IntegrationTest
         end
       end
 
+      scope "/always" do
+        resources :users, only: [] do
+          resources :articles,
+            only: %i[index show new create],
+            controller: "always_user_articles"
+        end
+      end
+
       scope "/verified" do
         get "verified_articles/forgot",
           to: "verified_articles#forgot",

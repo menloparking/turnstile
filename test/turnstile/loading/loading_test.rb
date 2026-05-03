@@ -362,6 +362,85 @@ module Turnstile
         refute result.key?(:@user)
         assert_equal @published, result[:@article]
       end
+
+      # --- parent_always: load parent even for skip actions ---
+
+      def test_parent_always_loads_parent_for_new_action
+        author = User.create!(
+          name: "Pippin", role: "editor"
+        )
+        klass = controller_class
+        klass.turnstile_config.parent_class = User
+        klass.turnstile_config.parent_always = true
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :new,
+          params: {user_id: author.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal author, result[:@user]
+        refute result.key?(:@article)
+      end
+
+      def test_parent_always_loads_parent_for_create_action
+        author = User.create!(
+          name: "Merry", role: "editor"
+        )
+        klass = controller_class
+        klass.turnstile_config.parent_class = User
+        klass.turnstile_config.parent_always = true
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :create,
+          params: {user_id: author.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal author, result[:@user]
+        refute result.key?(:@article)
+      end
+
+      def test_parent_always_false_skips_parent_for_new
+        # Default behaviour: parent not loaded for new.
+        author = User.create!(
+          name: "Treebeard", role: "editor"
+        )
+        klass = controller_class(parent_class: User)
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :new,
+          params: {user_id: author.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal({}, result)
+      end
+
+      def test_parent_always_still_loads_child_for_singular
+        # For non-skip actions, parent_always behaves
+        # the same as regular parent loading.
+        author = User.create!(
+          name: "Glorfindel", role: "editor"
+        )
+        article = Article.create!(
+          title: "Balrog Slayer",
+          published: true,
+          author_id: author.id
+        )
+        klass = controller_class
+        klass.turnstile_config.parent_class = User
+        klass.turnstile_config.parent_always = true
+        loader = Loader.new(
+          controller_class: klass,
+          action_name: :show,
+          params: {user_id: author.id, id: article.id},
+          current_user: @admin
+        )
+        result = loader.load
+        assert_equal author, result[:@user]
+        assert_equal article, result[:@article]
+      end
     end
 
     class DslTest < Minitest::Test
@@ -449,6 +528,32 @@ module Turnstile
         cfg = klass.turnstile_config
         assert_equal User, cfg.parent_class
         assert_equal :author_id, cfg.parent_id_param
+      end
+
+      def test_parent_resource_always_sets_flag
+        klass = build_controller_class
+        klass.parent_resource User, always: true
+        cfg = klass.turnstile_config
+        assert_equal User, cfg.parent_class
+        assert cfg.parent_always
+      end
+
+      def test_parent_resource_always_false_by_default
+        klass = build_controller_class
+        klass.parent_resource User
+        cfg = klass.turnstile_config
+        refute cfg.parent_always
+      end
+
+      def test_parent_resource_always_with_id_param
+        klass = build_controller_class
+        klass.parent_resource User,
+          id_param: :author_id,
+          always: true
+        cfg = klass.turnstile_config
+        assert_equal User, cfg.parent_class
+        assert_equal :author_id, cfg.parent_id_param
+        assert cfg.parent_always
       end
 
       def test_parent_config_inherits_via_dup

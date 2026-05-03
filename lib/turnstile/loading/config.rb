@@ -31,6 +31,14 @@ module Turnstile
       #   params even without an explicit parent_class.
       attr_accessor :parent_auto
 
+      # @return [Boolean] when true, load the parent resource
+      #   even for actions that skip child loading (new,
+      #   create, index). Useful for nested controllers where
+      #   the parent scopes the child but the child record
+      #   does not yet exist (new/create) or is a collection
+      #   (index).
+      attr_accessor :parent_always
+
       def initialize
         @resource_class = nil
         @id_param = nil
@@ -39,6 +47,7 @@ module Turnstile
         @parent_class = nil
         @parent_id_param = nil
         @parent_auto = false
+        @parent_always = false
       end
 
       # Deep-copy for inheritance: subclass controllers get

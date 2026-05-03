@@ -52,12 +52,31 @@ module Turnstile
       # When a parent is detected, the hash includes both the
       # parent (e.g. :@user) and the child.
       #
+      # When +parent_always+ is set on the config, the parent
+      # is loaded even for actions that would otherwise skip
+      # child loading (new, create, and any action in
+      # skip_loading). This is useful for nested controllers
+      # where the child record does not yet exist (new/create)
+      # or where the action is a collection (index) but the
+      # parent still needs to be present in the controller.
+      #
       # Returns an empty hash if the action is configured to
-      # skip loading.
+      # skip loading (unless parent_always forces parent load).
       #
       # @return [Hash{Symbol => Object}]
       def load
-        return {} if skip_action?
+        if skip_action?
+          return {} unless config.parent_always
+
+          # parent_always: load only the parent, no child.
+          assignments = {}
+          parent = load_parent
+          if parent
+            name = parent.class.model_name.singular
+            assignments[:"@#{name}"] = parent
+          end
+          return assignments
+        end
 
         assignments = {}
 

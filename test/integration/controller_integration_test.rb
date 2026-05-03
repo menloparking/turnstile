@@ -134,6 +134,16 @@ Rails.application.routes.draw do
         controller: "auto_user_articles"
     end
   end
+
+  # parent_always routes: parent is loaded even for
+  # new/create actions where the child does not exist yet.
+  scope "/always" do
+    resources :users, only: [] do
+      resources :articles,
+        only: %i[index show new create],
+        controller: "always_user_articles"
+    end
+  end
 end
 
 # Tiny controller for test sign-in.
@@ -1025,6 +1035,139 @@ class ParentResourceIntegrationTest <
   def test_auto_parent_show_rejects_wrong_parent
     sign_in(@admin)
     get "/auto/users/#{@editor.id}/articles/#{@other.id}"
+    assert_response :not_found
+  end
+end
+
+# ==========================================================
+# parent_always integration tests.
+# These verify that parent_resource ..., always: true causes
+# the parent to be set even for new/create actions where the
+# child record does not yet exist.
+# ==========================================================
+
+# Controller using parent_resource with always: true so that
+# @user is available even in new and create, where child
+# loading is normally skipped.
+class AlwaysUserArticlesController < ApplicationController
+  include Turnstile::Controller
+
+  resource_class Article
+  parent_resource User, always: true
+  skip_authorization :index, :show, :new, :create
+
+  def index
+    lines = []
+    lines << "user:#{@user.name}"
+    lines << "articles:#{@articles.map(&:title).join(",")}"
+    render plain: lines.join("\n")
+  end
+
+  def show
+    lines = []
+    lines << "user:#{@user.name}"
+    lines << "article:#{@article.title}"
+    render plain: lines.join("\n")
+  end
+
+  def new
+    # @user must be present even though no child is loaded.
+    lines = []
+    lines << "user:#{@user&.name || "nil"}"
+    lines << "article:#{@article&.title || "nil"}"
+    render plain: lines.join("\n")
+  end
+
+  def create
+    # @user must be present for create too.
+    lines = []
+    lines << "user:#{@user&.name || "nil"}"
+    render plain: lines.join("\n"), status: :created
+  end
+end
+
+class ParentAlwaysIntegrationTest <
+  ActionDispatch::IntegrationTest
+  def setup
+    Turnstile.reset_configuration!
+
+    @admin = User.create!(name: "Gandalf", role: "admin")
+    @editor = User.create!(name: "Frodo", role: "editor")
+
+    @article = Article.create!(
+      title: "There and Back Again",
+      body: "A hobbit's tale.",
+      published: true,
+      author_id: @editor.id
+    )
+  end
+
+  def teardown
+    Article.delete_all
+    User.delete_all
+  end
+
+  def sign_in(user)
+    post "/test_sign_in", params: {user_id: user.id}
+    assert_response :ok
+  end
+
+  # ===================================================
+  # parent_always: new — parent loaded, no child
+  # ===================================================
+
+  def test_new_sets_parent_but_not_child
+    sign_in(@admin)
+    get "/always/users/#{@editor.id}/articles/new"
+    assert_response :ok
+    assert_includes response.body, "user:Frodo"
+    assert_includes response.body, "article:nil"
+  end
+
+  # ===================================================
+  # parent_always: create — parent loaded, no child
+  # ===================================================
+
+  def test_create_sets_parent
+    sign_in(@admin)
+    post "/always/users/#{@editor.id}/articles",
+      params: {article: {title: "New"}}
+    assert_response :created
+    assert_includes response.body, "user:Frodo"
+  end
+
+  # ===================================================
+  # parent_always: show — parent and child both loaded
+  # ===================================================
+
+  def test_show_sets_parent_and_child
+    sign_in(@admin)
+    get "/always/users/#{@editor.id}/articles/#{@article.id}"
+    assert_response :ok
+    assert_includes response.body, "user:Frodo"
+    assert_includes response.body,
+      "article:There and Back Again"
+  end
+
+  # ===================================================
+  # parent_always: index — parent and collection loaded
+  # ===================================================
+
+  def test_index_sets_parent_and_collection
+    sign_in(@admin)
+    get "/always/users/#{@editor.id}/articles"
+    assert_response :ok
+    assert_includes response.body, "user:Frodo"
+    assert_includes response.body, "There and Back Again"
+  end
+
+  # ===================================================
+  # parent_always: missing parent still raises
+  # ===================================================
+
+  def test_new_raises_when_parent_not_found
+    sign_in(@admin)
+    get "/always/users/999999/articles/new"
     assert_response :not_found
   end
 end

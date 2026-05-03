@@ -94,15 +94,28 @@ module Turnstile
         end
 
         # Set explicit parent resource class and optional
-        # id_param override.
+        # id_param and always overrides.
         #
         #   parent_resource User
         #   parent_resource User, id_param: :author_id
+        #   parent_resource Bucket, id_param: :bucket_id,
+        #                           always: true
         #
-        def parent_resource(klass, id_param: nil)
+        # When +always: true+ is given, the parent is loaded
+        # even for actions that would normally skip child
+        # loading (new, create, and any action listed in
+        # skip_loading). This is the right choice for nested
+        # controllers where the parent scopes the request
+        # context but the child record does not yet exist
+        # (new/create) or is a collection loaded separately
+        # (index).
+        #
+        def parent_resource(klass, id_param: nil,
+          always: false)
           turnstile_config.parent_class = klass
           turnstile_config.parent_id_param =
             id_param&.to_sym
+          turnstile_config.parent_always = always
         end
 
         # Set the model class explicitly.
