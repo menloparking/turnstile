@@ -394,6 +394,11 @@ class AuditTest < ActionDispatch::IntegrationTest
           to: "unverified_articles#forgot",
           as: :unverified_articles_forgot
       end
+
+      # skip_turnstile integration test routes.
+      get "status", to: "status#index"
+      get "status/info", to: "status#info"
+      get "derived_status", to: "derived_status#index"
     end
   end
 end

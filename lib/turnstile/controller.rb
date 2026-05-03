@@ -34,6 +34,24 @@ module Turnstile
   #     skip_authorization :health_check
   #   end
   #
+  # == Bypassing Turnstile for an entire controller
+  #
+  # Controllers that do not manage an ActiveRecord resource
+  # (e.g. a health-check endpoint, a pure-API proxy, or a
+  # non-resource workflow controller) can opt out of all
+  # Turnstile processing with a single declaration:
+  #
+  #   class ReviewsController < ApplicationController
+  #     include Turnstile::Controller
+  #     skip_turnstile
+  #   end
+  #
+  # This is equivalent to calling skip_loading and
+  # skip_authorization for every action, but requires no
+  # maintenance as new actions are added to the controller.
+  # The bypass is inherited: subclasses of a controller that
+  # declares skip_turnstile are also fully bypassed.
+  #
   module Controller
     extend ActiveSupport::Concern
 
@@ -102,6 +120,8 @@ module Turnstile
     # read actions so that view templates receive guarded
     # attribute access automatically.
     def turnstile_load_and_authorize
+      return if self.class.turnstile_skip_all?
+
       turnstile_load_resource
       turnstile_authorize_resource
       turnstile_present_resource
@@ -240,6 +260,7 @@ module Turnstile
     # After-action guard registered by +verify_authorization+.
     # Raises when no authorization path was taken.
     def turnstile_verify_authorized
+      return if self.class.turnstile_skip_all?
       return if self.class.turnstile_skip_auth_actions
         .include?(action_name.to_sym)
       return if turnstile_authorization_performed?
@@ -249,6 +270,35 @@ module Turnstile
 
     # Class methods for the controller.
     module ClassMethods
+      # Bypass all Turnstile loading, authorization, and
+      # presentation for this controller and its subclasses.
+      # Use this for controllers that do not manage an
+      # ActiveRecord resource and where listing every action
+      # in skip_loading + skip_authorization would be brittle.
+      #
+      #   class ReviewsController < ApplicationController
+      #     include Turnstile::Controller
+      #     skip_turnstile
+      #   end
+      #
+      def skip_turnstile
+        @turnstile_skip_all = true
+      end
+
+      # Returns true when skip_turnstile has been declared on
+      # this controller or any ancestor that includes the
+      # concern.
+      def turnstile_skip_all?
+        return @turnstile_skip_all if
+          instance_variable_defined?(:@turnstile_skip_all)
+
+        if superclass.respond_to?(:turnstile_skip_all?)
+          superclass.turnstile_skip_all?
+        else
+          false
+        end
+      end
+
       # Declare actions that should skip authorization.
       def skip_authorization(*actions)
         actions.each do |a|

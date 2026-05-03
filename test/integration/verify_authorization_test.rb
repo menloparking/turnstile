@@ -147,6 +147,15 @@ Rails.application.routes.draw do
     end
   end
 
+  # parent_always routes: parent loaded even for new/create.
+  scope "/always" do
+    resources :users, only: [] do
+      resources :articles,
+        only: %i[index show new create],
+        controller: "always_user_articles"
+    end
+  end
+
   # Routes for verify_authorization tests. Custom member-
   # style routes must precede the resources block so that
   # /verified_articles/forgot is not swallowed by :show.
@@ -168,6 +177,11 @@ Rails.application.routes.draw do
       to: "unverified_articles#forgot",
       as: :unverified_articles_forgot
   end
+
+  # skip_turnstile integration test routes.
+  get "status", to: "status#index"
+  get "status/info", to: "status#info"
+  get "derived_status", to: "derived_status#index"
 end
 
 # Tiny controller for session setup in integration tests.
@@ -280,5 +294,146 @@ class VerifyAuthorizationTest <
     get "/unverified/unverified_articles/forgot"
     assert_response :ok
     assert_equal "no error", response.body
+  end
+end
+
+# ==========================================================
+# skip_turnstile integration tests.
+# These verify that a controller declaring skip_turnstile
+# bypasses all Turnstile loading, authorization, and
+# presentation — with no action-by-action bookkeeping
+# required — and that the bypass is inherited by subclasses.
+# ==========================================================
+
+# A controller that has no resource and uses skip_turnstile
+# to opt out of all Turnstile processing entirely.
+class StatusController < ApplicationController
+  include Turnstile::Controller
+
+  skip_turnstile
+
+  def index
+    render plain: "status:ok"
+  end
+
+  def info
+    render plain: "info:ok"
+  end
+end
+
+# A subclass of StatusController that adds a new action.
+# It should inherit the skip_turnstile bypass without
+# needing to re-declare it.
+class DerivedStatusController < StatusController
+  def index
+    render plain: "derived:ok"
+  end
+end
+
+class SkipTurnstileIntegrationTest <
+  ActionDispatch::IntegrationTest
+  def setup
+    Turnstile.reset_configuration!
+    @user = User.create!(name: "Gandalf", role: "admin")
+  end
+
+  def teardown
+    Turnstile.reset_configuration!
+    User.delete_all
+  end
+
+  def sign_in(user)
+    post "/test_sign_in", params: {user_id: user.id}
+    assert_response :ok
+  end
+
+  # ===================================================
+  # skip_turnstile: all actions bypass without listing
+  # ===================================================
+
+  def test_index_responds_without_auth_when_unauthenticated
+    # No sign-in at all. Turnstile is fully bypassed so the
+    # nil user never reaches any loading or authorization
+    # code.
+    get "/status"
+    assert_response :ok
+    assert_equal "status:ok", response.body
+  end
+
+  def test_info_responds_without_auth_when_unauthenticated
+    get "/status/info"
+    assert_response :ok
+    assert_equal "info:ok", response.body
+  end
+
+  def test_index_responds_when_signed_in
+    sign_in(@user)
+    get "/status"
+    assert_response :ok
+    assert_equal "status:ok", response.body
+  end
+
+  # ===================================================
+  # skip_turnstile: no resource loading side-effects
+  # ===================================================
+
+  def test_no_instance_variable_set_by_turnstile
+    # Because there is no resource class to infer, Turnstile
+    # would normally raise or set nothing. With skip_turnstile
+    # we just confirm the action runs cleanly.
+    get "/status"
+    assert_response :ok
+  end
+
+  # ===================================================
+  # skip_turnstile: verify_authorization is also bypassed
+  # ===================================================
+
+  def test_verify_authorization_does_not_raise_on_bypassed_controller
+    # Even with verify_authorization active, a controller
+    # that declares skip_turnstile must not raise
+    # AuthorizationNotPerformedError.
+    StatusController.verify_authorization
+
+    get "/status"
+    assert_response :ok
+  ensure
+    # Remove the after_action so it does not bleed into
+    # other tests.
+    StatusController._process_action_callbacks
+      .select { |cb|
+        cb.kind == :after &&
+          cb.filter == :turnstile_verify_authorized
+      }
+      .each { |cb|
+        StatusController
+          .skip_after_action(:turnstile_verify_authorized)
+      }
+  end
+
+  # ===================================================
+  # skip_turnstile: inheritance
+  # ===================================================
+
+  def test_subclass_inherits_skip_turnstile_bypass
+    # DerivedStatusController does not call skip_turnstile
+    # itself — it inherits the bypass from StatusController.
+    get "/derived_status"
+    assert_response :ok
+    assert_equal "derived:ok", response.body
+  end
+
+  def test_turnstile_skip_all_predicate_is_true_on_class
+    assert StatusController.turnstile_skip_all?
+  end
+
+  def test_turnstile_skip_all_predicate_inherited_by_subclass
+    assert DerivedStatusController.turnstile_skip_all?
+  end
+
+  def test_regular_controller_is_not_bypassed
+    # A normal controller (ArticlesController) must NOT be
+    # affected by another controller's skip_turnstile.
+    refute ArticlesController.turnstile_skip_all?
   end
 end

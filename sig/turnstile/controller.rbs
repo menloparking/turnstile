@@ -21,6 +21,8 @@ module Turnstile
     def turnstile_verify_authorized: -> void
 
     module ClassMethods
+      def skip_turnstile: -> void
+      def turnstile_skip_all?: -> bool
       def skip_authorization: (*Symbol) -> void
       def skip_presentation: (*Symbol) -> void
       def turnstile_skip_auth_actions: -> Set[Symbol]
